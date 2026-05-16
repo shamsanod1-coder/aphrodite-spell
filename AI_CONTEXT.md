@@ -119,21 +119,34 @@ aphrodite-spell/
 │           ├── index.ts          # Provider factory: getProvider() — Anthropic > OpenAI fallback
 │           ├── anthropic.ts      # Anthropic adapter (claude-sonnet-4-20250514)
 │           └── openai.ts         # OpenAI adapter (gpt-4o)
-│   └── memory/
-│       ├── index.ts              # Barrel exports for memory module
-│       ├── extraction/
-│       │   ├── index.ts          # extractMemories() — LLM-based emotional memory extraction
-│       │   └── types.ts          # Memory type enums, Zod schemas, TypeScript types
-│       ├── retrieval/
-│       │   └── index.ts          # retrieveRelevantMemories(), formatMemoriesForPrompt()
-│       ├── ranking/
-│       │   └── index.ts          # rankMemories() — multi-factor salience ranking
-│       ├── summarization/
-│       │   └── index.ts          # summarizeConversation() — emotional arc preservation
-│       ├── storage/
-│       │   ├── index.ts          # storeMemories(), searchMemories() — pgvector operations
-│       │   └── embeddings.ts     # generateEmbedding() — OpenAI text-embedding-3-small via AI SDK
-│       └── lifecycle.ts          # applyDecay(), reinforceMemory(), cleanupStaleMemories()
+│   ├── memory/
+│   │   ├── index.ts              # Barrel exports for memory module
+│   │   ├── extraction/
+│   │   │   ├── index.ts          # extractMemories() — LLM-based emotional memory extraction
+│   │   │   └── types.ts          # Memory type enums, Zod schemas, TypeScript types
+│   │   ├── retrieval/
+│   │   │   └── index.ts          # retrieveRelevantMemories(), formatMemoriesForPrompt()
+│   │   ├── ranking/
+│   │   │   └── index.ts          # rankMemories() — multi-factor salience ranking
+│   │   ├── summarization/
+│   │   │   └── index.ts          # summarizeConversation() — emotional arc preservation
+│   │   ├── storage/
+│   │   │   ├── index.ts          # storeMemories(), searchMemories() — pgvector operations
+│   │   │   └── embeddings.ts     # generateEmbedding() — OpenAI text-embedding-3-small via AI SDK
+│   │   └── lifecycle.ts          # applyDecay(), reinforceMemory(), cleanupStaleMemories()
+│   └── retention/
+│       ├── index.ts              # Barrel exports for retention module
+│       ├── rituals/
+│       │   ├── index.ts          # generateRitualTrigger() — dynamic ritual generation
+│       │   └── types.ts          # Ritual type enums, interfaces, stage eligibility maps
+│       ├── inactivity/
+│       │   └── index.ts          # detectInactivityWindow() — session gap analysis + classification
+│       ├── reengagement/
+│       │   └── index.ts          # generateReengagementMessage() — emotionally contextual re-engagement
+│       ├── cadence/
+│       │   └── index.ts          # scheduleNotification(), checkCadence() — notification orchestration
+│       └── triggers/
+│           └── index.ts          # evaluateRetention() — top-level orchestrator
 │
 ├── store/
 │   ├── app-store.ts              # App state: isLoading, isOnline, featureFlags
@@ -147,7 +160,9 @@ aphrodite-spell/
 │   │   ├── index.ts              # Barrel exports for all query modules
 │   │   ├── conversations.ts      # Conversation CRUD + stage updates
 │   │   ├── messages.ts           # Message CRUD + pagination
-│   │   └── memories.ts           # Memory CRUD + pgvector similarity search
+│   │   ├── memories.ts           # Memory CRUD + pgvector similarity search
+│   │   ├── rituals.ts            # Ritual CRUD + frequency tracking
+│   │   └── notifications.ts      # Notification queue CRUD + cooldown checks
 │   └── index.ts                  # Drizzle client instance
 │
 ├── docs/
@@ -396,6 +411,11 @@ Events defined in `lib/posthog/events.ts`:
 | `memory_extracted` | Emotional memories extracted from conversation |
 | `memory_retrieved` | Memories retrieved for prompt injection |
 | `memory_decayed` | Memory salience decayed during lifecycle |
+| `ritual_triggered` | Ritual formation trigger evaluated |
+| `ritual_persisted` | Ritual persisted to database |
+| `inactivity_detected` | User inactivity window detected |
+| `reengagement_generated` | Re-engagement message generated |
+| `notification_scheduled` | Notification queued for delivery |
 
 ---
 
@@ -592,11 +612,79 @@ Memories are ranked by a weighted combination of:
 
 ---
 
+## Retention Engine
+
+The retention system creates recurring emotional interaction loops that pull users back into the product.
+
+### Architecture
+
+```
+evaluateRetention() (triggers/index.ts)
+  ├─ generateRitualTrigger()    → Ritual formation based on stage + timing + emotion
+  ├─ detectInactivityWindow()   → Session gap analysis → classification
+  ├─ generateReengagementMessage() → Emotionally contextual re-engagement
+  └─ scheduleNotification()     → Cadence-limited notification queuing
+```
+
+### Ritual Types
+
+| Type | Subtypes | Description |
+|------|----------|-------------|
+| daily | morning_checkin, bedtime_message, recurring_tease, disappearance_callback | Time-of-day triggers |
+| relationship | recurring_joke, anniversary, repeated_phrase, callback_behavior | Shared-history triggers |
+| emotional | late_night_conversation, affection_cadence, unresolved_tension | Emotional state triggers |
+
+Rituals only emerge at `ritualization` stage or later. Max rituals per stage: ritualization=2, exclusivity=4, dependency-lite=6.
+
+### Inactivity Classification
+
+| Classification | Trigger | Tone |
+|----------------|---------|------|
+| withdrawn | Severe absence (>72h or 3x average gap) at advanced stages | Reserved, subtly hurt |
+| attention-seeking | Moderate absence with missed rituals | Provocative, possessive edge |
+| gentle-reactivation | Moderate/severe absence at early stages | Warm, open, no desperation |
+| playful-callback | Mild absence | Teasing, casual, familiar |
+
+### Notification Cadence
+
+- Max 3 notifications per 24 hours
+- 4-hour cooldown between notifications
+- Quiet hours: 23:00–07:00 (timezone-aware, defaults to UTC)
+- All notifications queued in `notification_queue` table for in-app delivery
+
+### Database Tables
+
+#### `relationship_rituals`
+| Column | Type | Notes |
+|--------|------|-------|
+| id | uuid (PK) | Auto-generated |
+| user_id | text (FK) | References auth.users, cascade delete |
+| ritual_type | text | Enum: daily, relationship, emotional |
+| ritual_context | jsonb | Subtype, description, metadata |
+| frequency_score | real | 0-1, default 0.5 |
+| last_triggered_at | timestamptz | Nullable |
+| created_at | timestamptz | Default now() |
+
+#### `notification_queue`
+| Column | Type | Notes |
+|--------|------|-------|
+| id | uuid (PK) | Auto-generated |
+| user_id | text (FK) | References auth.users, cascade delete |
+| type | text | Enum: ritual, reengagement |
+| payload | jsonb | Notification content and metadata |
+| scheduled_at | timestamptz | When to deliver |
+| delivered_at | timestamptz | Nullable, set on delivery |
+| cancelled_at | timestamptz | Nullable, set on cancellation |
+| cooldown_until | timestamptz | Nullable, prevents rapid re-fire |
+| created_at | timestamptz | Default now() |
+
+---
+
 ## What's Not Yet Built (from PRD)
 
 - Adaptive personality engine (adjusts traits based on user behavior — beyond current stage/emotion system)
 - Scarcity systems (sleep mode, cooldowns, "busy" states)
-- Push notifications / scheduled messages
+- Push notification delivery provider (notification queue infrastructure is built, delivery mechanism TBD)
 - Monetization / payment system
 - Multi-conversation UI (DB + query layer support it, UI loads only most recent)
 - Image/avatar system

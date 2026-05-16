@@ -136,6 +136,61 @@ export const messages = pgTable(
   ]
 );
 
+// ── Retention tables ──────────────────────────────────────────────────────
+
+export const relationshipRituals = pgTable(
+  "relationship_rituals",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    ritualType: text("ritual_type", {
+      enum: ["daily", "relationship", "emotional"],
+    }).notNull(),
+    ritualContext: jsonb("ritual_context").notNull(),
+    frequencyScore: real("frequency_score").notNull().default(0.5),
+    lastTriggeredAt: timestamp("last_triggered_at"),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+  },
+  (table) => [
+    index("rituals_user_id_idx").on(table.userId),
+    index("rituals_type_idx").on(table.userId, table.ritualType),
+    index("rituals_last_triggered_idx").on(
+      table.userId,
+      table.lastTriggeredAt
+    ),
+  ]
+);
+
+export const notificationQueue = pgTable(
+  "notification_queue",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    type: text("type", {
+      enum: ["ritual", "reengagement"],
+    }).notNull(),
+    payload: jsonb("payload").notNull(),
+    scheduledAt: timestamp("scheduled_at").notNull(),
+    deliveredAt: timestamp("delivered_at"),
+    cancelledAt: timestamp("cancelled_at"),
+    cooldownUntil: timestamp("cooldown_until"),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+  },
+  (table) => [
+    index("notifications_user_id_idx").on(table.userId),
+    index("notifications_scheduled_idx").on(table.userId, table.scheduledAt),
+    index("notifications_pending_idx").on(
+      table.userId,
+      table.type,
+      table.deliveredAt
+    ),
+  ]
+);
+
 // ── Memory tables ─────────────────────────────────────────────────────────
 
 export const memories = pgTable(
