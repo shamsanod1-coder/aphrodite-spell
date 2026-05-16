@@ -2,6 +2,7 @@ export interface ConversationRow {
   id: string;
   userId: string;
   relationshipStage: string;
+  archived: boolean;
   createdAt: string;
   updatedAt: string;
 }
@@ -12,6 +13,7 @@ export interface MessageRow {
   senderType: "user" | "assistant";
   content: string;
   metadata: unknown;
+  tokenCount: number | null;
   createdAt: string;
 }
 
@@ -51,13 +53,33 @@ export async function saveMessage(
 
 export async function updateMessage(
   messageId: string,
+  conversationId: string,
   content: string
 ): Promise<MessageRow> {
   const res = await fetch("/api/messages", {
     method: "PATCH",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ messageId, content }),
+    body: JSON.stringify({ messageId, conversationId, content }),
   });
   if (!res.ok) throw new Error("Failed to update message");
+  return res.json();
+}
+
+export interface ListConversationsOptions {
+  limit?: number;
+  offset?: number;
+  includeArchived?: boolean;
+}
+
+export async function listUserConversations(
+  options: ListConversationsOptions = {}
+): Promise<ConversationRow[]> {
+  const params = new URLSearchParams();
+  if (options.limit) params.set("limit", String(options.limit));
+  if (options.offset) params.set("offset", String(options.offset));
+  if (options.includeArchived) params.set("includeArchived", "true");
+
+  const res = await fetch(`/api/conversations?${params}`);
+  if (!res.ok) throw new Error("Failed to list conversations");
   return res.json();
 }

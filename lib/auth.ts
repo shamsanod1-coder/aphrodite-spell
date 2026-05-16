@@ -4,18 +4,18 @@ import { anonymous } from "better-auth/plugins/anonymous";
 import { magicLink } from "better-auth/plugins/magic-link";
 import { db } from "@/db";
 import * as schema from "@/db/schema";
+import { transferConversations } from "@/db/queries";
 
 export const auth = betterAuth({
   database: drizzleAdapter(db, { provider: "pg", schema }),
   plugins: [
     anonymous({
       onLinkAccount: async ({ anonymousUser, newUser }) => {
-        // Transfer conversations and messages from anonymous to linked account
+        await transferConversations(
+          anonymousUser.user.id,
+          newUser.user.id
+        );
         const { eq } = await import("drizzle-orm");
-        await db
-          .update(schema.conversations)
-          .set({ userId: newUser.user.id })
-          .where(eq(schema.conversations.userId, anonymousUser.user.id));
         await db
           .update(schema.profiles)
           .set({

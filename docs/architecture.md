@@ -54,6 +54,7 @@ ChatInput → useChatController → Vercel AI SDK (useChat) → POST /api/chat
 ### Server/Client Boundary
 
 - Drizzle + pg runs server-side only in API routes (`/api/conversations`, `/api/messages`, `/api/chat`)
+- API routes delegate to typed query functions in `db/queries/` for all database operations
 - Client components use `fetch()` to call API endpoints via `services/chat.ts`
 - Never import `db/` or `lib/auth.ts` in client components
 
@@ -95,8 +96,9 @@ Defined in `db/schema/index.ts` using Drizzle ORM:
 - Better Auth tables: `user`, `session`, `account`, `verification`
 - `profiles`: Per-user profile data, auto-created via database hooks
 - `app_sessions`: App session tracking for engagement analytics
-- `conversations`: Per-user conversation threads with `relationship_stage` tracking
-- `messages`: Individual messages with `sender_type` (user/assistant), content, metadata
+- `conversations`: Per-user conversation threads with `relationship_stage` tracking and `archived` flag
+- `messages`: Individual messages with `sender_type` (user/assistant), content, metadata, optional `token_count`
+- Typed query layer in `db/queries/` — reusable functions for CRUD, pagination, and ownership checks
 - All tables have application-level auth checks in API routes
 
 ## Future Considerations

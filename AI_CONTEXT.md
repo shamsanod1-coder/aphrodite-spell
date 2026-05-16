@@ -215,10 +215,11 @@ Auto-created via Better Auth `databaseHooks.user.create.after` hook when a new u
 | id | uuid (PK) | Auto-generated |
 | user_id | uuid (FK) | References auth.users |
 | relationship_stage | text | Default 'curiosity' |
+| archived | boolean | Default false |
 | created_at | timestamptz | Default now() |
 | updated_at | timestamptz | Default now() |
 
-Indexes: `user_id`, `updated_at DESC`
+Indexes: `user_id`, `updated_at DESC`, `(user_id, archived, updated_at)` (composite for active-conversation listing)
 
 #### `messages`
 | Column | Type | Notes |
@@ -228,6 +229,7 @@ Indexes: `user_id`, `updated_at DESC`
 | sender_type | text | Enum: 'user' or 'assistant' |
 | content | text | Default '' |
 | metadata | jsonb | Nullable |
+| token_count | integer | Nullable, per-message token usage |
 | created_at | timestamptz | Default now() |
 
 Indexes: `conversation_id`, `(conversation_id, created_at ASC)`
@@ -413,6 +415,7 @@ All jobs: Ubuntu latest, Node 22, npm cache.
 - Drizzle client in `db/index.ts` — server-side only, never import in client components
 - Use `drizzle-kit generate` to create migrations, `drizzle-kit migrate` to apply them
 - All queries use Drizzle's type-safe query builder (e.g., `db.select().from(table).where(...)`)
+- Typed query layer in `db/queries/` — reusable functions for conversations and messages (create, get, list, paginate, ownership checks)
 
 ### AI SDK v6 vs v5
 Key differences (v6 is installed):
@@ -460,7 +463,7 @@ Currently only the DB column exists; stage progression logic is not yet implemen
 - Scarcity systems (sleep mode, cooldowns, "busy" states)
 - Push notifications / scheduled messages
 - Monetization / payment system
-- Multi-conversation UI (DB supports it, UI loads only most recent)
+- Multi-conversation UI (DB + query layer support it, UI loads only most recent)
 - Image/avatar system
 - Voice system
 - PWA manifest and service worker
