@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { Suspense, useState, useEffect } from "react";
 import { useAuthStore } from "@/store/auth-store";
 import { useBillingStore } from "@/store/billing-store";
 import { signOut } from "@/services/auth";
@@ -8,7 +8,7 @@ import { AppShell } from "@/components/layout/app-shell";
 import { Button } from "@/components/ui/button";
 import { useRouter, useSearchParams } from "next/navigation";
 
-export default function SettingsPage() {
+function SettingsContent() {
   const user = useAuthStore((s) => s.user);
   const isGuest = useAuthStore((s) => s.isGuest);
   const tier = useBillingStore((s) => s.tier);
@@ -65,7 +65,6 @@ export default function SettingsPage() {
   }
 
   return (
-    <AppShell>
       <div className="px-4 py-6">
         <div className="mx-auto max-w-lg space-y-8">
           <h1 className="text-2xl font-semibold tracking-tight">Settings</h1>
@@ -131,6 +130,15 @@ export default function SettingsPage() {
           </div>
         </div>
       </div>
+  );
+}
+
+export default function SettingsPage() {
+  return (
+    <AppShell>
+      <Suspense>
+        <SettingsContent />
+      </Suspense>
     </AppShell>
   );
 }
