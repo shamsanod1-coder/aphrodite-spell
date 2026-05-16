@@ -4,6 +4,9 @@ export {
   getOrCreateConversation,
   listUserConversations,
   transferConversations,
+  updateRelationshipStage,
+  countConversationMessages,
+  getLastMessageTime,
   type Conversation,
   type ListConversationsOptions,
 } from "./conversations";
