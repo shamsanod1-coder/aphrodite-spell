@@ -114,11 +114,26 @@ aphrodite-spell/
 │       │   ├── emotional-state.ts     # Emotional layer: generateEmotionalState(), state prompt blocks
 │       │   ├── response-style.ts      # Conversational style controller per stage/emotion
 │       │   ├── behavior-modifiers.ts  # Guardrails: validateResponseStyle(), anti-patterns
-│       │   └── emotional-context.ts   # buildSystemPrompt() — dynamic prompt composition
+│       │   └── emotional-context.ts   # buildSystemPrompt() — 6-layer dynamic prompt composition (incl. memories)
 │       └── providers/
 │           ├── index.ts          # Provider factory: getProvider() — Anthropic > OpenAI fallback
 │           ├── anthropic.ts      # Anthropic adapter (claude-sonnet-4-20250514)
 │           └── openai.ts         # OpenAI adapter (gpt-4o)
+│   └── memory/
+│       ├── index.ts              # Barrel exports for memory module
+│       ├── extraction/
+│       │   ├── index.ts          # extractMemories() — LLM-based emotional memory extraction
+│       │   └── types.ts          # Memory type enums, Zod schemas, TypeScript types
+│       ├── retrieval/
+│       │   └── index.ts          # retrieveRelevantMemories(), formatMemoriesForPrompt()
+│       ├── ranking/
+│       │   └── index.ts          # rankMemories() — multi-factor salience ranking
+│       ├── summarization/
+│       │   └── index.ts          # summarizeConversation() — emotional arc preservation
+│       ├── storage/
+│       │   ├── index.ts          # storeMemories(), searchMemories() — pgvector operations
+│       │   └── embeddings.ts     # generateEmbedding() — OpenAI text-embedding-3-small via AI SDK
+│       └── lifecycle.ts          # applyDecay(), reinforceMemory(), cleanupStaleMemories()
 │
 ├── store/
 │   ├── app-store.ts              # App state: isLoading, isOnline, featureFlags
@@ -127,7 +142,12 @@ aphrodite-spell/
 │
 ├── db/
 │   ├── schema/
-│   │   └── index.ts              # Drizzle table definitions (Better Auth + app tables)
+│   │   └── index.ts              # Drizzle table definitions (Better Auth + app + memory tables)
+│   ├── queries/
+│   │   ├── index.ts              # Barrel exports for all query modules
+│   │   ├── conversations.ts      # Conversation CRUD + stage updates
+│   │   ├── messages.ts           # Message CRUD + pagination
+│   │   └── memories.ts           # Memory CRUD + pgvector similarity search
 │   └── index.ts                  # Drizzle client instance
 │
 ├── docs/
@@ -240,6 +260,22 @@ Indexes: `user_id`, `updated_at DESC`, `(user_id, archived, updated_at)` (compos
 | created_at | timestamptz | Default now() |
 
 Indexes: `conversation_id`, `(conversation_id, created_at ASC)`
+
+#### `memories`
+| Column | Type | Notes |
+|--------|------|-------|
+| id | uuid (PK) | Auto-generated |
+| user_id | text (FK) | References auth.users, cascade delete |
+| conversation_id | uuid (FK) | References conversations, cascade delete |
+| content | text | Concise emotional memory description |
+| memory_type | text | Enum: insecurity, routine, desire, emotional_disclosure, preference, recurring_theme, emotional_trigger, attachment_signal |
+| emotional_weight | real | 0-1 intensity score, default 0.5 |
+| salience_score | real | 0-1 decaying importance, default 0.5 |
+| embedding | vector(1536) | OpenAI text-embedding-3-small embedding |
+| created_at | timestamptz | Default now() |
+| last_referenced_at | timestamptz | Nullable, updated on retrieval |
+
+Indexes: `user_id`, `conversation_id`, `(user_id, salience_score)`, HNSW on `embedding` with `vector_cosine_ops`
 
 ### RLS Policies
 
@@ -357,6 +393,9 @@ Events defined in `lib/posthog/events.ts`:
 | `message_received` | AI response received |
 | `message_retry` | User retries a failed message |
 | `chat_error` | Chat error occurred |
+| `memory_extracted` | Emotional memories extracted from conversation |
+| `memory_retrieved` | Memories retrieved for prompt injection |
+| `memory_decayed` | Memory salience decayed during lifecycle |
 
 ---
 
@@ -480,13 +519,14 @@ Session gaps >72h trigger "slightly-distant"; >48h trigger "mildly-disappointed"
 
 ## Dynamic Prompt Composition
 
-`buildSystemPrompt()` in `services/ai/personality/emotional-context.ts` composes the system prompt from 5 layers:
+`buildSystemPrompt()` in `services/ai/personality/emotional-context.ts` composes the system prompt from up to 6 layers:
 
 1. **Core Persona** — Base personality and communication style
 2. **Relationship Stage** — Stage-specific behavioral instructions
 3. **Emotional State** — Current emotional context and intensity
-4. **Response Style** — Length, casing, fragmentation, emoji rules per stage/emotion
-5. **Guardrails** — Anti-patterns (assistant tone, over-validation, robotic phrasing)
+4. **Emotional Memories** (conditional) — Retrieved memories injected naturally into context
+5. **Response Style** — Length, casing, fragmentation, emoji rules per stage/emotion
+6. **Guardrails** — Anti-patterns (assistant tone, over-validation, robotic phrasing)
 
 The chat route (`POST /api/chat`) calls this instead of using the static `SYSTEM_PROMPT`.
 
@@ -503,10 +543,58 @@ The chat route (`POST /api/chat`) calls this instead of using the static `SYSTEM
 
 ---
 
+## Emotional Memory System
+
+The memory system gives Aria emotional continuity across conversations by extracting, storing, and retrieving emotionally meaningful memories.
+
+### Architecture
+
+```
+POST /api/chat
+  → Retrieve memories (pgvector cosine similarity + multi-factor ranking)
+  → Build prompt with [EMOTIONAL MEMORIES] layer
+  → Stream response
+  → On finish: async extract emotional memories from recent messages
+    → LLM classifies emotional content via generateObject() + Zod schema
+    → Generate embeddings (OpenAI text-embedding-3-small, 1536 dims)
+    → Deduplicate (cosine similarity > 0.92 = duplicate)
+    → Store in memories table with pgvector
+```
+
+### Memory Types
+
+| Type | Description |
+|------|-------------|
+| insecurity | Self-doubt, fear of judgment, vulnerability |
+| routine | Daily habits, rituals, recurring activities |
+| desire | Goals, wishes, dreams |
+| emotional_disclosure | Direct sharing of feelings or personal experiences |
+| preference | Likes, dislikes, tastes, opinions |
+| recurring_theme | Topics that come up repeatedly |
+| emotional_trigger | Things causing strong emotional reactions |
+| attachment_signal | Growing trust, comfort, or connection with Aria |
+
+### Ranking
+
+Memories are ranked by a weighted combination of:
+- Semantic similarity (35%) — cosine distance from current message embedding
+- Salience score (25%) — decaying importance score
+- Emotional weight (20%) — intensity assigned at extraction
+- Recency (10%) — exponential decay from creation date
+- Reference recency (10%) — penalizes recently-referenced memories to avoid repetition
+
+### Lifecycle
+
+- **Decay**: Salience decays exponentially (~2%/day) from last reference date
+- **Reinforcement**: Referenced memories get +0.15 salience boost
+- **Cleanup**: Memories below 0.05 salience with no reference in 30 days are deleted
+- **Deduplication**: New memories with >0.92 cosine similarity to existing ones are skipped
+
+---
+
 ## What's Not Yet Built (from PRD)
 
 - Adaptive personality engine (adjusts traits based on user behavior — beyond current stage/emotion system)
-- Memory system (emotional recall across conversations)
 - Scarcity systems (sleep mode, cooldowns, "busy" states)
 - Push notifications / scheduled messages
 - Monetization / payment system

@@ -17,6 +17,9 @@ export const AnalyticsEvents = {
   RELATIONSHIP_STAGE_ADVANCED: "relationship_stage_advanced",
   EMOTIONAL_STATE_SHIFT: "emotional_state_shift",
   ATTACHMENT_SIGNAL_DETECTED: "attachment_signal_detected",
+  MEMORY_EXTRACTED: "memory_extracted",
+  MEMORY_RETRIEVED: "memory_retrieved",
+  MEMORY_DECAYED: "memory_decayed",
 } as const;
 
 type EventName = (typeof AnalyticsEvents)[keyof typeof AnalyticsEvents];
