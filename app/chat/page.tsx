@@ -1,30 +1,38 @@
 "use client";
 
 import { AppShell } from "@/components/layout/app-shell";
+import { ChatHeader } from "@/components/chat/chat-header";
+import { MessageList } from "@/components/chat/message-list";
+import { ChatInput } from "@/components/chat/chat-input";
+import { useChatController } from "@/hooks/use-chat";
+import { useChatStore } from "@/store/chat-store";
 
 export default function ChatPage() {
+  const { messages, isStreaming, sendMessage, loadMoreMessages, retry } =
+    useChatController();
+  const error = useChatStore((s) => s.error);
+
   return (
     <AppShell>
       <div className="flex h-full flex-col">
-        <div className="flex-1 overflow-y-auto px-4 py-6">
-          <div className="mx-auto max-w-lg">
-            <div className="flex flex-col items-center justify-center gap-4 pt-20 text-center">
-              <h1 className="text-2xl font-semibold tracking-tight">Hey there</h1>
-              <p className="text-sm text-muted-foreground">
-                Chat functionality coming soon. This is your space.
-              </p>
-            </div>
-          </div>
+        <ChatHeader />
+
+        <div className="relative flex flex-1 flex-col overflow-hidden">
+          <MessageList
+            messages={messages}
+            isStreaming={isStreaming}
+            onLoadMore={loadMoreMessages}
+            onRetry={retry}
+          />
         </div>
 
-        {/* Chat input placeholder */}
-        <div className="border-t border-border p-4 pb-[env(safe-area-inset-bottom)]">
-          <div className="mx-auto max-w-lg">
-            <div className="flex items-center gap-2 rounded-xl border border-border bg-muted/50 px-4 py-3">
-              <span className="flex-1 text-sm text-muted-foreground">Type a message...</span>
-            </div>
+        {error && (
+          <div className="border-t border-destructive/20 bg-destructive/5 px-4 py-2">
+            <p className="text-center text-xs text-destructive">{error}</p>
           </div>
-        </div>
+        )}
+
+        <ChatInput onSend={sendMessage} disabled={isStreaming} />
       </div>
     </AppShell>
   );

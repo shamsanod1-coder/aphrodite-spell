@@ -8,6 +8,11 @@ export const AnalyticsEvents = {
   SESSION_START: "session_start",
   SESSION_END: "session_end",
   ROUTE_CHANGE: "route_change",
+  CONVERSATION_STARTED: "conversation_started",
+  MESSAGE_SENT: "message_sent",
+  MESSAGE_RECEIVED: "message_received",
+  MESSAGE_RETRY: "message_retry",
+  CHAT_ERROR: "chat_error",
 } as const;
 
 type EventName = (typeof AnalyticsEvents)[keyof typeof AnalyticsEvents];
