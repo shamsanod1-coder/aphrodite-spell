@@ -147,6 +147,17 @@ aphrodite-spell/
 │   │   │   └── index.ts          # scheduleNotification(), checkCadence() — notification orchestration
 │   │   └── triggers/
 │   │       └── index.ts          # evaluateRetention() — top-level orchestrator
+│   ├── billing/
+│   │   ├── index.ts              # Barrel exports for billing module
+│   │   ├── types.ts              # SubscriptionTier, Entitlements, UsageStatus, SubscriptionInfo
+│   │   ├── subscriptions/
+│   │   │   └── index.ts          # createCheckoutSession(), createPortalSession(), constructWebhookEvent()
+│   │   ├── entitlements/
+│   │   │   └── index.ts          # getEntitlements() — maps tier to feature limits
+│   │   ├── gating/
+│   │   │   └── index.ts          # checkMessageGating(), shouldShowPaywall()
+│   │   └── usage/
+│   │       └── index.ts          # getDailyUsage(), incrementDailyUsage(), getUsageStatus()
 │   └── scarcity/
 │       ├── index.ts              # Barrel exports for scarcity module
 │       ├── availability/
@@ -305,6 +316,33 @@ Indexes: `conversation_id`, `(conversation_id, created_at ASC)`
 
 Indexes: `user_id`, `conversation_id`, `(user_id, salience_score)`, HNSW on `embedding` with `vector_cosine_ops`
 
+#### `subscriptions`
+| Column | Type | Notes |
+|--------|------|-------|
+| id | uuid (PK) | Auto-generated |
+| user_id | text (FK) | References auth.users, cascade delete, unique |
+| stripe_customer_id | text | Nullable, unique |
+| stripe_subscription_id | text | Nullable, unique |
+| tier | text | Enum: 'free', 'premium'. Default 'free' |
+| status | text | Enum: active, canceled, past_due, incomplete, trialing, unpaid. Default 'active' |
+| current_period_end | timestamptz | Nullable |
+| cancel_at_period_end | boolean | Default false |
+| created_at | timestamptz | Default now() |
+| updated_at | timestamptz | Default now() |
+
+Indexes: `user_id`, `stripe_customer_id`, `stripe_subscription_id`
+
+#### `daily_usage`
+| Column | Type | Notes |
+|--------|------|-------|
+| id | uuid (PK) | Auto-generated |
+| user_id | text (FK) | References auth.users, cascade delete |
+| date | text | YYYY-MM-DD format |
+| message_count | integer | Default 0 |
+| created_at | timestamptz | Default now() |
+
+Indexes: unique `(user_id, date)`
+
 ### RLS Policies
 
 All tables have `SELECT`, `INSERT`, `UPDATE` policies scoped to `auth.uid()`.
@@ -325,6 +363,10 @@ All tables have `SELECT`, `INSERT`, `UPDATE` policies scoped to `auth.uid()`.
 | `NEXT_PUBLIC_POSTHOG_HOST` | No | Client | PostHog instance URL |
 | `ANTHROPIC_API_KEY` | Yes* | Server | Anthropic API key (*required if using Anthropic provider) |
 | `OPENAI_API_KEY` | Yes* | Server | OpenAI API key (*required if Anthropic unavailable) |
+| `STRIPE_SECRET_KEY` | No | Server | Stripe secret API key |
+| `NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY` | No | Client | Stripe publishable key |
+| `STRIPE_WEBHOOK_SECRET` | No | Server | Stripe webhook signing secret |
+| `STRIPE_PRICE_ID_PREMIUM` | No | Server | Stripe Price ID for premium subscription |
 | `SKIP_ENV_VALIDATION` | No | Both | Set to "true" to skip env validation (used in CI) |
 
 Env validation uses `@t3-oss/env-nextjs` in `lib/env.ts`. All vars are optional in schema but the app won't function without `DATABASE_URL`, `BETTER_AUTH_SECRET`, `BETTER_AUTH_URL`, and at least one AI provider key.

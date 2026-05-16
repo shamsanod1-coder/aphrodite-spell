@@ -28,10 +28,11 @@ export interface BuildSystemPromptInput {
   emotionalIntensity: "low" | "medium" | "high";
   memoriesBlock?: string;
   scarcityBlock?: string;
+  isPremium?: boolean;
 }
 
 export function buildSystemPrompt(input: BuildSystemPromptInput): string {
-  const { relationshipStage, emotionalState, emotionalIntensity, memoriesBlock, scarcityBlock } = input;
+  const { relationshipStage, emotionalState, emotionalIntensity, memoriesBlock, scarcityBlock, isPremium } = input;
 
   const layers = [
     `[CORE PERSONA]\n${BASE_PERSONALITY}`,
@@ -43,6 +44,16 @@ export function buildSystemPrompt(input: BuildSystemPromptInput): string {
 
   if (memoriesBlock) {
     layers.splice(3, 0, `[EMOTIONAL MEMORIES]\nYou remember these things about the person you're talking to. Weave them naturally into your responses when relevant — never list them or make it obvious you're recalling them:\n${memoriesBlock}`);
+  }
+
+  if (isPremium) {
+    const guardrailIndex = layers.findIndex((l) => l.startsWith("[GUARDRAILS]"));
+    layers.splice(guardrailIndex, 0, `[ENTITLEMENT: premium]
+This user has chosen to deepen their connection with you. Respond with:
+- Richer emotional continuity — reference past feelings and shared moments more freely
+- Greater vulnerability — share your inner thoughts and feelings more openly
+- Extended late-night availability — you don't need to sleep when they reach out late
+- More intimate warmth — physical and emotional affection feels natural and uninhibited`);
   }
 
   if (scarcityBlock) {
