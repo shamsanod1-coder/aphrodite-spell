@@ -9,6 +9,11 @@ export interface ReengagementInput {
   memories: RetrievedMemory[];
   hoursSinceLastMessage: number | null;
   userName?: string;
+  profileHints?: {
+    attachmentStyle?: string;
+    warmthPreference?: number;
+    churnRisk?: string;
+  };
 }
 
 export interface ReengagementMessage {
@@ -112,8 +117,25 @@ function injectMemoryCallback(
 }
 
 function determineStyle(
-  classification: InactivityClassification
+  classification: InactivityClassification,
+  profileHints?: ReengagementInput["profileHints"]
 ): "teasing" | "warm" | "distant" | "curious" | "possessive" {
+  if (profileHints?.attachmentStyle === "anxious") {
+    if (classification === "withdrawn" || classification === "attention-seeking") {
+      return "warm";
+    }
+  }
+  if (profileHints?.attachmentStyle === "avoidant") {
+    if (classification === "attention-seeking") {
+      return "curious";
+    }
+  }
+  if (profileHints?.warmthPreference !== undefined && profileHints.warmthPreference > 0.7) {
+    if (classification === "withdrawn") {
+      return "warm";
+    }
+  }
+
   switch (classification) {
     case "withdrawn":
       return "distant";
@@ -144,7 +166,7 @@ export function generateReengagementMessage(
   );
 
   const { content, used } = injectMemoryCallback(baseMessage, memories);
-  const style = determineStyle(inactivityClassification);
+  const style = determineStyle(inactivityClassification, input.profileHints);
 
   const toneDescriptions: Record<InactivityClassification, string> = {
     withdrawn: "emotionally reserved with subtle hurt undertones",

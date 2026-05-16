@@ -818,11 +818,85 @@ generateAvailabilityState() (availability/index.ts)
 
 ---
 
+## Behavioral Intelligence (Emotional Profiling + Adaptive Personalization)
+
+The adaptation system creates long-term user emotional profiles and dynamically tunes Aria's behavior per user.
+
+### Architecture
+
+```
+services/adaptation/
+  ├── profiling/          → Long-term emotional profile generation + evolution
+  │   ├── index.ts        → fetchEmotionalProfile(), evolveProfile()
+  │   └── types.ts        → EmotionalProfileData, AttachmentSignal, AdaptiveModifiers
+  ├── behavior-learning/  → detectAttachmentSignals(), computeEmotionalDepth()
+  ├── preferences/        → computeAdaptiveModifiers(), getAdaptationPromptBlock()
+  └── engagement-modeling/ → predictChurnRisk(), evaluateAndUpdateChurnRisk()
+```
+
+### Profile Dimensions (0-1 floats, exponential moving average)
+
+| Dimension | Default | Description |
+|-----------|---------|-------------|
+| warmthPreference | 0.5 | How much warmth/affection the user responds to |
+| teasingPreference | 0.5 | How much teasing/banter the user enjoys |
+| ritualEngagementScore | 0.5 | How consistently they participate in rituals |
+| dominancePreference | 0.5 | Whether they prefer leading or following |
+| emotionalOpennessScore | 0.5 | Depth of emotional sharing |
+| verbosityPreference | 0.5 | Preferred response length |
+| reassuranceSeekingScore | 0.5 | How much reassurance they seek |
+
+### Attachment Styles
+
+- **secure**: Balanced emotional engagement
+- **anxious**: High reassurance seeking + dependency patterns
+- **avoidant**: Low disclosure + low reassurance
+- **disorganized**: Mixed signals (high reassurance + low disclosure)
+
+### Churn Risk States
+
+| State | Score Range | Description |
+|-------|-------------|-------------|
+| healthy | < 0.25 | Normal engagement |
+| drifting | 0.25-0.45 | Early signs of reduced engagement |
+| disengaging | 0.45-0.70 | Clear decline in interaction |
+| high-risk | > 0.70 | Likely to stop using the app |
+
+### Attachment Signal Types
+
+- reassurance_seeking, jealousy_prompt, emotional_checking
+- repeated_ritual_engagement, daily_dependency_pattern
+- emotional_disclosure, apology_behavior
+
+### Integration Points
+
+- **Chat route**: Fetches profile before prompt, evolves profile in onFinish
+- **Prompt builder**: New `[ADAPTATION]` layer injected before `[GUARDRAILS]`
+- **Retention engine**: Profile hints passed to re-engagement for personalized style
+- **Analytics**: profile_updated, adaptation_applied, churn_risk_predicted events
+
+### `user_emotional_profiles` Table
+
+| Column | Type | Notes |
+|--------|------|-------|
+| user_id | text (PK) | References auth.users, cascade delete |
+| attachment_style | text | Enum: secure, anxious, avoidant, disorganized |
+| warmth_preference | real | 0-1, default 0.5 |
+| teasing_preference | real | 0-1, default 0.5 |
+| ritual_engagement_score | real | 0-1, default 0.5 |
+| dominance_preference | real | 0-1, default 0.5 |
+| emotional_openness_score | real | 0-1, default 0.5 |
+| verbosity_preference | real | 0-1, default 0.5 |
+| reassurance_seeking_score | real | 0-1, default 0.5 |
+| churn_risk | text | Enum: healthy, drifting, disengaging, high-risk |
+| last_updated_at | timestamptz | Default now() |
+| created_at | timestamptz | Default now() |
+
+---
+
 ## What's Not Yet Built (from PRD)
 
-- Adaptive personality engine (adjusts traits based on user behavior — beyond current stage/emotion system)
 - Push notification delivery provider (notification queue infrastructure is built, delivery mechanism TBD)
-- Monetization / payment system
 - Multi-conversation UI (DB + query layer support it, UI loads only most recent)
 - Image/avatar system
 - Voice system

@@ -67,3 +67,15 @@ export {
   getDailyUsageRecord,
   type Subscription,
 } from "./subscriptions";
+
+export {
+  getEmotionalProfile,
+  getOrCreateEmotionalProfile,
+  updateProfileScores,
+  updateAttachmentStyle,
+  updateChurnRisk,
+  type EmotionalProfile,
+  type ProfileScoreUpdates,
+  type AttachmentStyle,
+  type ChurnRisk,
+} from "./emotional-profiles";

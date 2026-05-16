@@ -35,6 +35,9 @@ export const AnalyticsEvents = {
   CONVERSION_COMPLETED: "conversion_completed",
   QUOTA_HIT: "quota_hit",
   PREMIUM_RETENTION: "premium_retention",
+  PROFILE_UPDATED: "profile_updated",
+  ADAPTATION_APPLIED: "adaptation_applied",
+  CHURN_RISK_PREDICTED: "churn_risk_predicted",
 } as const;
 
 type EventName = (typeof AnalyticsEvents)[keyof typeof AnalyticsEvents];
@@ -233,5 +236,39 @@ export function trackQuotaHit(messagesUsed: number, limit: number) {
 export function trackPremiumRetention(daysSinceSubscription: number) {
   trackEvent(AnalyticsEvents.PREMIUM_RETENTION, {
     days_since_subscription: daysSinceSubscription,
+  });
+}
+
+export function trackProfileUpdated(
+  attachmentStyle: string,
+  churnRisk: string,
+  signalCount: number
+) {
+  trackEvent(AnalyticsEvents.PROFILE_UPDATED, {
+    attachment_style: attachmentStyle,
+    churn_risk: churnRisk,
+    signal_count: signalCount,
+  });
+}
+
+export function trackAdaptationApplied(
+  modifierCount: number,
+  relationshipStage: string
+) {
+  trackEvent(AnalyticsEvents.ADAPTATION_APPLIED, {
+    modifier_count: modifierCount,
+    relationship_stage: relationshipStage,
+  });
+}
+
+export function trackChurnRiskPredicted(
+  risk: string,
+  score: number,
+  signals: string[]
+) {
+  trackEvent(AnalyticsEvents.CHURN_RISK_PREDICTED, {
+    risk,
+    score,
+    signals,
   });
 }

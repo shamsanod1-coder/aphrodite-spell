@@ -27,8 +27,21 @@ import {
 import { generateAvailabilityState } from "@/services/scarcity";
 import { checkMessageGating, incrementDailyUsage } from "@/services/billing";
 import {
+  fetchEmotionalProfile,
+  computeAdaptiveModifiers,
+  getAdaptationPromptBlock,
+  detectAttachmentSignals,
+  computeEmotionalDepth,
+  computeAverageMessageLength,
+  evolveProfile,
+  evaluateAndUpdateChurnRisk,
+} from "@/services/adaptation";
+import {
   trackAvailabilityStateChanged,
   trackDelayedResponseTriggered,
+  trackProfileUpdated,
+  trackAdaptationApplied,
+  trackChurnRiskPredicted,
 } from "@/lib/posthog/events";
 
 export async function POST(req: Request) {
@@ -120,6 +133,22 @@ export async function POST(req: Request) {
     }
   }
 
+  // Fetch user emotional profile for adaptive personalization
+  let adaptationBlock: string | undefined;
+  let profileData: Awaited<ReturnType<typeof fetchEmotionalProfile>> | null = null;
+  try {
+    profileData = await fetchEmotionalProfile(session.user.id);
+    const modifiers = computeAdaptiveModifiers(profileData, stageResult.stage);
+    const block = getAdaptationPromptBlock(modifiers, profileData);
+    if (block) {
+      adaptationBlock = block;
+      const activeModifiers = block.split("\n").length - 1;
+      trackAdaptationApplied(activeModifiers, stageResult.stage);
+    }
+  } catch {
+    // Adaptation failure is non-fatal
+  }
+
   const currentHour = new Date().getUTCHours();
   const sessionMessageCount = messages.filter((m) => m.role === "user").length;
 
@@ -165,6 +194,7 @@ export async function POST(req: Request) {
     emotionalIntensity: emotionalResult.intensity,
     memoriesBlock: memoriesBlock || undefined,
     scarcityBlock,
+    adaptationBlock,
     isPremium: gating.tier === "premium",
   });
 
@@ -177,30 +207,73 @@ export async function POST(req: Request) {
     messages: modelMessages,
     onFinish: async () => {
       incrementDailyUsage(session.user.id).catch(() => {});
-      // Fire-and-forget: extract emotional memories from conversation
-      if (!process.env.OPENAI_API_KEY) return;
-      try {
-        const recentMessages = messages.slice(-10).map((m) => ({
-          role: m.role,
-          content:
-            m.parts
-              ?.filter(
-                (p): p is { type: "text"; text: string } => p.type === "text"
-              )
-              .map((p) => p.text)
-              .join("") ?? "",
-        }));
 
-        const { memories: extracted } = await extractMemories(
-          recentMessages,
-          stageResult.stage
+      const recentMessages = messages.slice(-10).map((m) => ({
+        role: m.role as "user" | "assistant",
+        content:
+          m.parts
+            ?.filter(
+              (p): p is { type: "text"; text: string } => p.type === "text"
+            )
+            .map((p) => p.text)
+            .join("") ?? "",
+      }));
+
+      // Fire-and-forget: extract emotional memories from conversation
+      if (process.env.OPENAI_API_KEY) {
+        try {
+          const { memories: extracted } = await extractMemories(
+            recentMessages,
+            stageResult.stage
+          );
+
+          if (extracted.length > 0) {
+            await storeMemories(session.user.id, conversationId, extracted);
+          }
+        } catch {
+          // Extraction failure is non-fatal
+        }
+      }
+
+      // Fire-and-forget: evolve emotional profile based on interaction
+      try {
+        const attachmentSignals = detectAttachmentSignals(recentMessages);
+        const emotionalDepth = computeEmotionalDepth(recentMessages);
+        const averageMessageLength = computeAverageMessageLength(recentMessages);
+
+        const updatedProfile = await evolveProfile(session.user.id, {
+          attachmentSignals,
+          emotionalDepth,
+          averageMessageLength,
+          ritualParticipation: false,
+          sessionGapHours: hoursSinceLastMessage,
+        });
+
+        trackProfileUpdated(
+          updatedProfile.attachmentStyle,
+          updatedProfile.churnRisk,
+          attachmentSignals.length
         );
 
-        if (extracted.length > 0) {
-          await storeMemories(session.user.id, conversationId, extracted);
-        }
+        // Evaluate churn risk with available engagement metrics
+        const churnResult = await evaluateAndUpdateChurnRisk(session.user.id, {
+          sessionFrequencyTrend: 0,
+          emotionalDepthTrend: 0,
+          ritualParticipationRate: 0.5,
+          averageReplyLength: averageMessageLength,
+          averageResponseGapHours: hoursSinceLastMessage ?? 0,
+          emotionalReciprocity: emotionalDepth,
+          messageCount,
+          daysActive,
+        });
+
+        trackChurnRiskPredicted(
+          churnResult.risk,
+          churnResult.score,
+          churnResult.signals
+        );
       } catch {
-        // Extraction failure is non-fatal
+        // Profile evolution failure is non-fatal
       }
     },
   });

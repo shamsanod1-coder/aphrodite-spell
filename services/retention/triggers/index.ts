@@ -27,6 +27,11 @@ export interface RetentionEvaluationInput {
   averageSessionGapHours: number;
   memories: RetrievedMemory[];
   timezone?: string;
+  profileHints?: {
+    attachmentStyle?: string;
+    warmthPreference?: number;
+    churnRisk?: string;
+  };
 }
 
 export interface RetentionEvaluationResult {
@@ -185,6 +190,7 @@ export async function evaluateRetention(
           relationshipStage: input.relationshipStage,
           memories: input.memories,
           hoursSinceLastMessage,
+          profileHints: input.profileHints,
         });
 
         result.reengagementTriggered = true;
