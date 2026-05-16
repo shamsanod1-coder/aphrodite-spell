@@ -1,6 +1,6 @@
 import { db } from "@/db";
-import { conversations } from "@/db/schema";
-import { eq, and, desc } from "drizzle-orm";
+import { conversations, messages } from "@/db/schema";
+import { eq, and, desc, sql } from "drizzle-orm";
 
 export type Conversation = typeof conversations.$inferSelect;
 
@@ -80,4 +80,36 @@ export async function transferConversations(
     .update(conversations)
     .set({ userId: toUserId })
     .where(eq(conversations.userId, fromUserId));
+}
+
+export async function updateRelationshipStage(
+  conversationId: string,
+  stage: string
+): Promise<void> {
+  await db
+    .update(conversations)
+    .set({ relationshipStage: stage, updatedAt: new Date() })
+    .where(eq(conversations.id, conversationId));
+}
+
+export async function countConversationMessages(
+  conversationId: string
+): Promise<number> {
+  const [result] = await db
+    .select({ count: sql<number>`count(*)::int` })
+    .from(messages)
+    .where(eq(messages.conversationId, conversationId));
+  return result.count;
+}
+
+export async function getLastMessageTime(
+  conversationId: string
+): Promise<Date | null> {
+  const [row] = await db
+    .select({ createdAt: messages.createdAt })
+    .from(messages)
+    .where(eq(messages.conversationId, conversationId))
+    .orderBy(desc(messages.createdAt))
+    .limit(1);
+  return row?.createdAt ?? null;
 }

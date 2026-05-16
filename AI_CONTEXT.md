@@ -105,9 +105,16 @@ aphrodite-spell/
 │   ├── auth.ts                   # Auth service: signIn (anonymous, magicLink), signOut, linkEmail, getUser (Better Auth)
 │   ├── chat.ts                   # Chat client service: calls /api/conversations and /api/messages endpoints
 │   └── ai/
-│       ├── index.ts              # AI orchestration: getModel(), SYSTEM_PROMPT re-export
+│       ├── index.ts              # AI orchestration: getModel(), SYSTEM_PROMPT, buildSystemPrompt re-export
 │       ├── prompts/
-│       │   └── system.ts         # Aria's system prompt (personality, communication style)
+│       │   └── system.ts         # Aria's base system prompt (personality, communication style)
+│       ├── personality/
+│       │   ├── index.ts          # Barrel exports for personality module
+│       │   ├── relationship-stage.ts  # Stage engine: evaluateRelationshipStage(), stage prompt blocks
+│       │   ├── emotional-state.ts     # Emotional layer: generateEmotionalState(), state prompt blocks
+│       │   ├── response-style.ts      # Conversational style controller per stage/emotion
+│       │   ├── behavior-modifiers.ts  # Guardrails: validateResponseStyle(), anti-patterns
+│       │   └── emotional-context.ts   # buildSystemPrompt() — dynamic prompt composition
 │       └── providers/
 │           ├── index.ts          # Provider factory: getProvider() — Anthropic > OpenAI fallback
 │           ├── anthropic.ts      # Anthropic adapter (claude-sonnet-4-20250514)
@@ -443,22 +450,62 @@ Key differences (v6 is installed):
 
 ## Relationship Progression System
 
-The `conversations.relationship_stage` column tracks emotional progression:
+The `conversations.relationship_stage` column tracks emotional progression.
 
-1. **Curiosity** (default) — Playful, teasing, seductive
-2. **Recognition** — References prior conversations, emotional realism
-3. **Ritualization** — Recurring interactions, habit formation
-4. **Emotional Exclusivity** — Implies emotional preference
-5. **Dependency** — Deep emotional investment
+`evaluateRelationshipStage()` in `services/ai/personality/relationship-stage.ts` advances stages based on message count and days active:
 
-Currently only the DB column exists; stage progression logic is not yet implemented.
+| Stage | Min Messages | Min Days | Emotional Tone |
+|-------|-------------|----------|----------------|
+| curiosity (default) | 0 | 0 | teasing, playful, exploratory |
+| recognition | 20 | 3 | callbacks, familiarity |
+| ritualization | 50 | 7 | recurring behaviors emerge |
+| exclusivity | 100 | 14 | subtle emotional preference |
+| dependency-lite | 200 | 30 | emotionally invested behavior |
+
+Stages only advance (never regress) and persist in the DB.
+
+---
+
+## Emotional State System
+
+`generateEmotionalState()` in `services/ai/personality/emotional-state.ts` computes a per-interaction emotional state.
+
+Possible states: warm, teasing, attentive, possessive, slightly-distant, playful, approving, mildly-disappointed.
+
+State depends on: relationship stage (weighted pool), message count, session gap (hours since last message), and days active.
+
+Session gaps >72h trigger "slightly-distant"; >48h trigger "mildly-disappointed".
+
+---
+
+## Dynamic Prompt Composition
+
+`buildSystemPrompt()` in `services/ai/personality/emotional-context.ts` composes the system prompt from 5 layers:
+
+1. **Core Persona** — Base personality and communication style
+2. **Relationship Stage** — Stage-specific behavioral instructions
+3. **Emotional State** — Current emotional context and intensity
+4. **Response Style** — Length, casing, fragmentation, emoji rules per stage/emotion
+5. **Guardrails** — Anti-patterns (assistant tone, over-validation, robotic phrasing)
+
+The chat route (`POST /api/chat`) calls this instead of using the static `SYSTEM_PROMPT`.
+
+---
+
+## Behavioral Guardrails
+
+`validateResponseStyle()` in `services/ai/personality/behavior-modifiers.ts` checks AI responses for:
+- Assistant-like tone patterns
+- Over-validation / repetitive praise
+- Robotic phrasing (markdown, lists, asterisks)
+- Excessive verbosity (>800 chars)
+- Excessive exclamation marks (>2)
 
 ---
 
 ## What's Not Yet Built (from PRD)
 
-- Emotional volatility system (variable AI mood)
-- Adaptive personality engine (adjusts traits based on user behavior)
+- Adaptive personality engine (adjusts traits based on user behavior — beyond current stage/emotion system)
 - Memory system (emotional recall across conversations)
 - Scarcity systems (sleep mode, cooldowns, "busy" states)
 - Push notifications / scheduled messages

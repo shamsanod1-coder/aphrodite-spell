@@ -13,6 +13,10 @@ export const AnalyticsEvents = {
   MESSAGE_RECEIVED: "message_received",
   MESSAGE_RETRY: "message_retry",
   CHAT_ERROR: "chat_error",
+  EMOTIONAL_CALLBACK_USED: "emotional_callback_used",
+  RELATIONSHIP_STAGE_ADVANCED: "relationship_stage_advanced",
+  EMOTIONAL_STATE_SHIFT: "emotional_state_shift",
+  ATTACHMENT_SIGNAL_DETECTED: "attachment_signal_detected",
 } as const;
 
 type EventName = (typeof AnalyticsEvents)[keyof typeof AnalyticsEvents];
@@ -44,4 +48,36 @@ export function trackSessionStart() {
 
 export function trackSessionEnd() {
   trackEvent(AnalyticsEvents.SESSION_END);
+}
+
+export function trackEmotionalCallbackUsed(properties?: Record<string, unknown>) {
+  trackEvent(AnalyticsEvents.EMOTIONAL_CALLBACK_USED, properties);
+}
+
+export function trackRelationshipStageAdvanced(
+  previousStage: string,
+  newStage: string,
+  conversationId: string
+) {
+  trackEvent(AnalyticsEvents.RELATIONSHIP_STAGE_ADVANCED, {
+    previous_stage: previousStage,
+    new_stage: newStage,
+    conversation_id: conversationId,
+  });
+}
+
+export function trackEmotionalStateShift(
+  emotionalState: string,
+  intensity: string,
+  conversationId: string
+) {
+  trackEvent(AnalyticsEvents.EMOTIONAL_STATE_SHIFT, {
+    emotional_state: emotionalState,
+    intensity,
+    conversation_id: conversationId,
+  });
+}
+
+export function trackAttachmentSignalDetected(properties?: Record<string, unknown>) {
+  trackEvent(AnalyticsEvents.ATTACHMENT_SIGNAL_DETECTED, properties);
 }
