@@ -247,6 +247,40 @@ export const dailyUsage = pgTable(
   ]
 );
 
+// ── Adaptation tables ─────────────────────────────────────────────────────
+
+export const userEmotionalProfiles = pgTable(
+  "user_emotional_profiles",
+  {
+    userId: text("user_id")
+      .primaryKey()
+      .references(() => user.id, { onDelete: "cascade" }),
+    attachmentStyle: text("attachment_style", {
+      enum: ["secure", "anxious", "avoidant", "disorganized"],
+    })
+      .default("secure")
+      .notNull(),
+    warmthPreference: real("warmth_preference").notNull().default(0.5),
+    teasingPreference: real("teasing_preference").notNull().default(0.5),
+    ritualEngagementScore: real("ritual_engagement_score").notNull().default(0.5),
+    dominancePreference: real("dominance_preference").notNull().default(0.5),
+    emotionalOpennessScore: real("emotional_openness_score").notNull().default(0.5),
+    verbosityPreference: real("verbosity_preference").notNull().default(0.5),
+    reassuranceSeekingScore: real("reassurance_seeking_score").notNull().default(0.5),
+    churnRisk: text("churn_risk", {
+      enum: ["healthy", "drifting", "disengaging", "high-risk"],
+    })
+      .default("healthy")
+      .notNull(),
+    lastUpdatedAt: timestamp("last_updated_at").defaultNow().notNull(),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+  },
+  (table) => [
+    index("emotional_profiles_churn_idx").on(table.churnRisk),
+    index("emotional_profiles_updated_idx").on(table.lastUpdatedAt),
+  ]
+);
+
 // ── Memory tables ─────────────────────────────────────────────────────────
 
 export const memories = pgTable(

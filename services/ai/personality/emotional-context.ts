@@ -28,11 +28,12 @@ export interface BuildSystemPromptInput {
   emotionalIntensity: "low" | "medium" | "high";
   memoriesBlock?: string;
   scarcityBlock?: string;
+  adaptationBlock?: string;
   isPremium?: boolean;
 }
 
 export function buildSystemPrompt(input: BuildSystemPromptInput): string {
-  const { relationshipStage, emotionalState, emotionalIntensity, memoriesBlock, scarcityBlock, isPremium } = input;
+  const { relationshipStage, emotionalState, emotionalIntensity, memoriesBlock, scarcityBlock, adaptationBlock, isPremium } = input;
 
   const layers = [
     `[CORE PERSONA]\n${BASE_PERSONALITY}`,
@@ -59,6 +60,11 @@ This user has chosen to deepen their connection with you. Respond with:
   if (scarcityBlock) {
     const guardrailIndex = layers.findIndex((l) => l.startsWith("[GUARDRAILS]"));
     layers.splice(guardrailIndex, 0, scarcityBlock);
+  }
+
+  if (adaptationBlock) {
+    const guardrailIndex = layers.findIndex((l) => l.startsWith("[GUARDRAILS]"));
+    layers.splice(guardrailIndex, 0, adaptationBlock);
   }
 
   return layers.join("\n\n---\n\n");
