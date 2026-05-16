@@ -6,9 +6,7 @@ import {
 import { getModel, SYSTEM_PROMPT } from "@/services/ai";
 import { auth } from "@/lib/auth";
 import { headers } from "next/headers";
-import { db } from "@/db";
-import { conversations } from "@/db/schema";
-import { eq, and } from "drizzle-orm";
+import { getConversation } from "@/db/queries";
 
 export async function POST(req: Request) {
   const session = await auth.api.getSession({
@@ -24,17 +22,7 @@ export async function POST(req: Request) {
     conversationId: string;
   };
 
-  const [conversation] = await db
-    .select({ id: conversations.id })
-    .from(conversations)
-    .where(
-      and(
-        eq(conversations.id, conversationId),
-        eq(conversations.userId, session.user.id)
-      )
-    )
-    .limit(1);
-
+  const conversation = await getConversation(conversationId, session.user.id);
   if (!conversation) {
     return new Response("Conversation not found", { status: 404 });
   }

@@ -5,6 +5,7 @@ import {
   boolean,
   timestamp,
   jsonb,
+  integer,
   index,
 } from "drizzle-orm/pg-core";
 
@@ -99,12 +100,18 @@ export const conversations = pgTable(
       .notNull()
       .references(() => user.id, { onDelete: "cascade" }),
     relationshipStage: text("relationship_stage").default("curiosity").notNull(),
+    archived: boolean("archived").default(false).notNull(),
     createdAt: timestamp("created_at").defaultNow().notNull(),
     updatedAt: timestamp("updated_at").defaultNow().notNull(),
   },
   (table) => [
     index("conversations_user_id_idx").on(table.userId),
     index("conversations_updated_at_idx").on(table.updatedAt),
+    index("conversations_user_active_idx").on(
+      table.userId,
+      table.archived,
+      table.updatedAt
+    ),
   ]
 );
 
@@ -118,6 +125,7 @@ export const messages = pgTable(
     senderType: text("sender_type", { enum: ["user", "assistant"] }).notNull(),
     content: text("content").default("").notNull(),
     metadata: jsonb("metadata"),
+    tokenCount: integer("token_count"),
     createdAt: timestamp("created_at").defaultNow().notNull(),
   },
   (table) => [

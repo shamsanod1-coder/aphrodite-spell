@@ -1,8 +1,11 @@
 import { auth } from "@/lib/auth";
 import { headers } from "next/headers";
-import { db } from "@/db";
-import { conversations, messages } from "@/db/schema";
-import { eq, and, asc, lt } from "drizzle-orm";
+import {
+  createMessage,
+  paginateMessages,
+  updateMessageContent,
+  verifyMessageOwnership,
+} from "@/db/queries";
 import { NextRequest } from "next/server";
 
 export async function GET(req: NextRequest) {
@@ -17,40 +20,18 @@ export async function GET(req: NextRequest) {
   const searchParams = req.nextUrl.searchParams;
   const conversationId = searchParams.get("conversationId");
   const limit = parseInt(searchParams.get("limit") ?? "50", 10);
-  const before = searchParams.get("before");
+  const before = searchParams.get("before") ?? undefined;
 
   if (!conversationId) {
     return Response.json({ error: "Missing conversationId" }, { status: 400 });
   }
 
-  // Verify ownership
-  const [conversation] = await db
-    .select({ id: conversations.id })
-    .from(conversations)
-    .where(
-      and(
-        eq(conversations.id, conversationId),
-        eq(conversations.userId, session.user.id)
-      )
-    )
-    .limit(1);
-
-  if (!conversation) {
+  const isOwner = await verifyMessageOwnership(conversationId, session.user.id);
+  if (!isOwner) {
     return Response.json({ error: "Not found" }, { status: 404 });
   }
 
-  const conditions = [eq(messages.conversationId, conversationId)];
-  if (before) {
-    conditions.push(lt(messages.createdAt, new Date(before)));
-  }
-
-  const rows = await db
-    .select()
-    .from(messages)
-    .where(and(...conditions))
-    .orderBy(asc(messages.createdAt))
-    .limit(limit);
-
+  const rows = await paginateMessages({ conversationId, limit, before });
   return Response.json(rows);
 }
 
@@ -67,39 +48,25 @@ export async function POST(req: NextRequest) {
     conversationId: string;
     senderType: "user" | "assistant";
     content: string;
-    metadata?: Record<string, string | number | boolean | null>;
+    metadata?: Record<string, unknown>;
+    tokenCount?: number;
   };
 
-  // Verify ownership
-  const [conversation] = await db
-    .select({ id: conversations.id })
-    .from(conversations)
-    .where(
-      and(
-        eq(conversations.id, body.conversationId),
-        eq(conversations.userId, session.user.id)
-      )
-    )
-    .limit(1);
-
-  if (!conversation) {
+  const isOwner = await verifyMessageOwnership(
+    body.conversationId,
+    session.user.id
+  );
+  if (!isOwner) {
     return Response.json({ error: "Not found" }, { status: 404 });
   }
 
-  const [saved] = await db
-    .insert(messages)
-    .values({
-      conversationId: body.conversationId,
-      senderType: body.senderType,
-      content: body.content,
-      metadata: body.metadata ?? null,
-    })
-    .returning();
-
-  await db
-    .update(conversations)
-    .set({ updatedAt: new Date() })
-    .where(eq(conversations.id, body.conversationId));
+  const saved = await createMessage({
+    conversationId: body.conversationId,
+    senderType: body.senderType,
+    content: body.content,
+    metadata: body.metadata,
+    tokenCount: body.tokenCount,
+  });
 
   return Response.json(saved);
 }
@@ -115,14 +82,18 @@ export async function PATCH(req: NextRequest) {
 
   const body = (await req.json()) as {
     messageId: string;
+    conversationId: string;
     content: string;
   };
 
-  const [updated] = await db
-    .update(messages)
-    .set({ content: body.content })
-    .where(eq(messages.id, body.messageId))
-    .returning();
+  const isOwner = await verifyMessageOwnership(
+    body.conversationId,
+    session.user.id
+  );
+  if (!isOwner) {
+    return Response.json({ error: "Not found" }, { status: 404 });
+  }
 
+  const updated = await updateMessageContent(body.messageId, body.content);
   return Response.json(updated);
 }
