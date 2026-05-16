@@ -114,7 +114,7 @@ aphrodite-spell/
 │       │   ├── emotional-state.ts     # Emotional layer: generateEmotionalState(), state prompt blocks
 │       │   ├── response-style.ts      # Conversational style controller per stage/emotion
 │       │   ├── behavior-modifiers.ts  # Guardrails: validateResponseStyle(), anti-patterns
-│       │   └── emotional-context.ts   # buildSystemPrompt() — 6-layer dynamic prompt composition (incl. memories)
+│       │   └── emotional-context.ts   # buildSystemPrompt() — 7-layer dynamic prompt composition (incl. memories + scarcity)
 │       └── providers/
 │           ├── index.ts          # Provider factory: getProvider() — Anthropic > OpenAI fallback
 │           ├── anthropic.ts      # Anthropic adapter (claude-sonnet-4-20250514)
@@ -134,19 +134,32 @@ aphrodite-spell/
 │   │   │   ├── index.ts          # storeMemories(), searchMemories() — pgvector operations
 │   │   │   └── embeddings.ts     # generateEmbedding() — OpenAI text-embedding-3-small via AI SDK
 │   │   └── lifecycle.ts          # applyDecay(), reinforceMemory(), cleanupStaleMemories()
-│   └── retention/
-│       ├── index.ts              # Barrel exports for retention module
-│       ├── rituals/
-│       │   ├── index.ts          # generateRitualTrigger() — dynamic ritual generation
-│       │   └── types.ts          # Ritual type enums, interfaces, stage eligibility maps
-│       ├── inactivity/
-│       │   └── index.ts          # detectInactivityWindow() — session gap analysis + classification
-│       ├── reengagement/
-│       │   └── index.ts          # generateReengagementMessage() — emotionally contextual re-engagement
-│       ├── cadence/
-│       │   └── index.ts          # scheduleNotification(), checkCadence() — notification orchestration
-│       └── triggers/
-│           └── index.ts          # evaluateRetention() — top-level orchestrator
+│   ├── retention/
+│   │   ├── index.ts              # Barrel exports for retention module
+│   │   ├── rituals/
+│   │   │   ├── index.ts          # generateRitualTrigger() — dynamic ritual generation
+│   │   │   └── types.ts          # Ritual type enums, interfaces, stage eligibility maps
+│   │   ├── inactivity/
+│   │   │   └── index.ts          # detectInactivityWindow() — session gap analysis + classification
+│   │   ├── reengagement/
+│   │   │   └── index.ts          # generateReengagementMessage() — emotionally contextual re-engagement
+│   │   ├── cadence/
+│   │   │   └── index.ts          # scheduleNotification(), checkCadence() — notification orchestration
+│   │   └── triggers/
+│   │       └── index.ts          # evaluateRetention() — top-level orchestrator
+│   └── scarcity/
+│       ├── index.ts              # Barrel exports for scarcity module
+│       ├── availability/
+│       │   ├── index.ts          # generateAvailabilityState() — core availability state engine
+│       │   └── types.ts          # Availability state types, enums, interfaces
+│       ├── cooldowns/
+│       │   └── index.ts          # evaluateSleepMode() — quiet windows, sleep-state messaging
+│       ├── pacing/
+│       │   └── index.ts          # computePacing() — delayed response engine, typing delay variance
+│       ├── interruptions/
+│       │   └── index.ts          # evaluateWithdrawal() — emotional withdrawal layer
+│       ├── safety.ts             # validateScarcity() — safety constraints and bounds
+│       └── analytics.ts          # Scarcity-specific analytics event builders
 │
 ├── store/
 │   ├── app-store.ts              # App state: isLoading, isOnline, featureFlags
@@ -416,6 +429,11 @@ Events defined in `lib/posthog/events.ts`:
 | `inactivity_detected` | User inactivity window detected |
 | `reengagement_generated` | Re-engagement message generated |
 | `notification_scheduled` | Notification queued for delivery |
+| `delayed_response_triggered` | Scarcity pacing delay applied to response |
+| `availability_state_changed` | Availability state transitioned (e.g., attentive → distracted) |
+| `withdrawal_event` | Emotional withdrawal triggered |
+| `user_return_after_delay` | User returned after a period of absence |
+| `cooldown_interrupted` | Cooldown period was interrupted |
 
 ---
 
@@ -539,14 +557,15 @@ Session gaps >72h trigger "slightly-distant"; >48h trigger "mildly-disappointed"
 
 ## Dynamic Prompt Composition
 
-`buildSystemPrompt()` in `services/ai/personality/emotional-context.ts` composes the system prompt from up to 6 layers:
+`buildSystemPrompt()` in `services/ai/personality/emotional-context.ts` composes the system prompt from up to 7 layers:
 
 1. **Core Persona** — Base personality and communication style
 2. **Relationship Stage** — Stage-specific behavioral instructions
 3. **Emotional State** — Current emotional context and intensity
 4. **Emotional Memories** (conditional) — Retrieved memories injected naturally into context
-5. **Response Style** — Length, casing, fragmentation, emoji rules per stage/emotion
-6. **Guardrails** — Anti-patterns (assistant tone, over-validation, robotic phrasing)
+5. **Scarcity / Availability** (conditional) — Availability state, pacing, withdrawal, and safety instructions
+6. **Response Style** — Length, casing, fragmentation, emoji rules per stage/emotion
+7. **Guardrails** — Anti-patterns (assistant tone, over-validation, robotic phrasing)
 
 The chat route (`POST /api/chat`) calls this instead of using the static `SYSTEM_PROMPT`.
 
@@ -680,10 +699,86 @@ Rituals only emerge at `ritualization` stage or later. Max rituals per stage: ri
 
 ---
 
+## Scarcity Engine (Emotional Availability + Controlled Absence)
+
+The scarcity system creates emotionally believable scarcity and selective availability to make Aria feel like a real person with emotional boundaries.
+
+### Architecture
+
+```
+generateAvailabilityState() (availability/index.ts)
+  ├─ evaluateSleepMode()         → Sleep window check (23:00–07:00)
+  ├─ evaluateWithdrawal()        → Emotional withdrawal evaluation
+  ├─ Pool selection              → Weighted random availability state
+  ├─ computePacing()             → Response delay computation
+  └─ validateScarcity()          → Safety constraint validation
+```
+
+### Availability States
+
+| State | Description |
+|-------|-------------|
+| attentive | Default — fully present and engaged |
+| distracted | Divided attention, slightly shorter responses |
+| unavailable | Barely available, very brief responses |
+| asleep | Sleep mode — groggy, sleepy responses |
+| emotionally-withdrawn | Guarded, less warm, measured responses |
+| delayed | Took a moment before responding |
+
+### Scarcity Eligibility by Stage
+
+| Stage | Eligible | Intensity |
+|-------|----------|-----------|
+| curiosity | No | 0% |
+| recognition | No (softened only) | 5% |
+| ritualization | Yes | 15% |
+| exclusivity | Yes | 22% |
+| dependency-lite | Yes | 25% |
+
+### Sleep Mode
+
+- Default quiet window: 23:00–07:00 (timezone-aware, defaults to UTC)
+- Three sleep phases: falling-asleep, deep-sleep, waking-up
+- Only activates at ritualization stage or later
+- Responses feel sleepy/groggy, not unavailable
+
+### Pacing (Delayed Response Engine)
+
+- Each availability state has base delay + variance + contextual multiplier
+- Stage multiplier scales delay (0.2 at curiosity → 1.0 at exclusivity)
+- Four pacing styles: instant (<500ms), natural (<2s), deliberate (<5s), slow (>5s)
+- Delays communicated via `x-pacing-delay` response header for future frontend use
+- Prompt instructions guide Aria's opening phrasing to match perceived delay
+
+### Emotional Withdrawal
+
+- Triggered by session intensity or periodic emotional distance
+- Three warmth reduction levels: subtle, moderate, noticeable
+- Approval withholding and emotional distance toggles per stage
+- Never active at curiosity or recognition stages
+- Never stacks with already-distant emotional states
+
+### Safety Constraints
+
+- No scarcity at curiosity stage
+- No scarcity below 10 total messages
+- Max 3 consecutive non-attentive interactions
+- No harsh scarcity (withdrawn/unavailable) at session start (<2 messages)
+- Recognition stage: harsh scarcity softened to distracted
+- Hard prompt rules: no punishment, no guilt-tripping, no abandonment anxiety, no conditional warmth
+
+### Response Headers
+
+| Header | Value | Description |
+|--------|-------|-------------|
+| `x-availability-state` | AvailabilityState | Current availability state |
+| `x-pacing-delay` | number (ms) | Suggested pacing delay for frontend |
+
+---
+
 ## What's Not Yet Built (from PRD)
 
 - Adaptive personality engine (adjusts traits based on user behavior — beyond current stage/emotion system)
-- Scarcity systems (sleep mode, cooldowns, "busy" states)
 - Push notification delivery provider (notification queue infrastructure is built, delivery mechanism TBD)
 - Monetization / payment system
 - Multi-conversation UI (DB + query layer support it, UI loads only most recent)

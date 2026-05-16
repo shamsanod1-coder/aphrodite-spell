@@ -24,6 +24,11 @@ import {
   extractMemories,
   storeMemories,
 } from "@/services/memory";
+import { generateAvailabilityState } from "@/services/scarcity";
+import {
+  trackAvailabilityStateChanged,
+  trackDelayedResponseTriggered,
+} from "@/lib/posthog/events";
 
 export async function POST(req: Request) {
   const session = await auth.api.getSession({
@@ -101,11 +106,51 @@ export async function POST(req: Request) {
     }
   }
 
+  const currentHour = new Date().getUTCHours();
+  const sessionMessageCount = messages.filter((m) => m.role === "user").length;
+
+  let availabilityState: string = "attentive";
+  let pacingDelayMs = 0;
+  let scarcityBlock: string | undefined;
+  try {
+    const scarcityResult = generateAvailabilityState({
+      relationshipStage: stageResult.stage,
+      emotionalState: emotionalResult.state,
+      messageCount,
+      hoursSinceLastMessage,
+      daysActive,
+      currentHour,
+      sessionMessageCount,
+    });
+    availabilityState = scarcityResult.state;
+    pacingDelayMs = scarcityResult.pacingDelayMs;
+    scarcityBlock = scarcityResult.promptBlock || undefined;
+
+    if (scarcityResult.state !== "attentive") {
+      trackAvailabilityStateChanged(
+        null,
+        scarcityResult.state,
+        scarcityResult.metadata.reason,
+        stageResult.stage
+      );
+    }
+    if (pacingDelayMs > 0) {
+      trackDelayedResponseTriggered(
+        scarcityResult.state,
+        pacingDelayMs,
+        pacingDelayMs < 2000 ? "natural" : pacingDelayMs < 5000 ? "deliberate" : "slow"
+      );
+    }
+  } catch {
+    // Scarcity evaluation failure is non-fatal
+  }
+
   const systemPrompt = buildSystemPrompt({
     relationshipStage: stageResult.stage,
     emotionalState: emotionalResult.state,
     emotionalIntensity: emotionalResult.intensity,
     memoriesBlock: memoriesBlock || undefined,
+    scarcityBlock,
   });
 
   const modelMessages = await convertToModelMessages(messages);
@@ -148,6 +193,8 @@ export async function POST(req: Request) {
       "x-emotional-state": emotionalResult.state,
       "x-relationship-stage": stageResult.stage,
       "x-stage-advanced": stageResult.advanced ? "true" : "false",
+      "x-availability-state": availabilityState,
+      "x-pacing-delay": String(pacingDelayMs),
     },
   });
 }

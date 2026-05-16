@@ -25,6 +25,11 @@ export const AnalyticsEvents = {
   INACTIVITY_DETECTED: "inactivity_detected",
   REENGAGEMENT_GENERATED: "reengagement_generated",
   NOTIFICATION_SCHEDULED: "notification_scheduled",
+  DELAYED_RESPONSE_TRIGGERED: "delayed_response_triggered",
+  AVAILABILITY_STATE_CHANGED: "availability_state_changed",
+  WITHDRAWAL_EVENT: "withdrawal_event",
+  USER_RETURN_AFTER_DELAY: "user_return_after_delay",
+  COOLDOWN_INTERRUPTED: "cooldown_interrupted",
 } as const;
 
 type EventName = (typeof AnalyticsEvents)[keyof typeof AnalyticsEvents];
@@ -140,5 +145,63 @@ export function trackNotificationScheduled(
   trackEvent(AnalyticsEvents.NOTIFICATION_SCHEDULED, {
     notification_type: type,
     delay_seconds: delaySeconds,
+  });
+}
+
+export function trackDelayedResponseTriggered(
+  availabilityState: string,
+  delayMs: number,
+  pacingStyle: string
+) {
+  trackEvent(AnalyticsEvents.DELAYED_RESPONSE_TRIGGERED, {
+    availability_state: availabilityState,
+    delay_ms: delayMs,
+    pacing_style: pacingStyle,
+  });
+}
+
+export function trackAvailabilityStateChanged(
+  previousState: string | null,
+  newState: string,
+  reason: string,
+  relationshipStage: string
+) {
+  trackEvent(AnalyticsEvents.AVAILABILITY_STATE_CHANGED, {
+    previous_state: previousState,
+    new_state: newState,
+    reason,
+    relationship_stage: relationshipStage,
+  });
+}
+
+export function trackWithdrawalEvent(
+  warmthReduction: string,
+  reason: string,
+  relationshipStage: string
+) {
+  trackEvent(AnalyticsEvents.WITHDRAWAL_EVENT, {
+    warmth_reduction: warmthReduction,
+    reason,
+    relationship_stage: relationshipStage,
+  });
+}
+
+export function trackUserReturnAfterDelay(
+  delayHours: number,
+  availabilityState: string
+) {
+  trackEvent(AnalyticsEvents.USER_RETURN_AFTER_DELAY, {
+    delay_hours: delayHours,
+    availability_state_on_return: availabilityState,
+  });
+}
+
+export function trackCooldownInterrupted(
+  reason: string,
+  cooldownType: string
+) {
+  trackEvent(AnalyticsEvents.COOLDOWN_INTERRUPTED, {
+    reason,
+    cooldown_type: cooldownType,
   });
 }
