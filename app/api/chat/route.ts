@@ -25,6 +25,7 @@ import {
   storeMemories,
 } from "@/services/memory";
 import { generateAvailabilityState } from "@/services/scarcity";
+import { checkMessageGating, incrementDailyUsage } from "@/services/billing";
 import {
   trackAvailabilityStateChanged,
   trackDelayedResponseTriggered,
@@ -47,6 +48,18 @@ export async function POST(req: Request) {
   const conversation = await getConversation(conversationId, session.user.id);
   if (!conversation) {
     return new Response("Conversation not found", { status: 404 });
+  }
+
+  const gating = await checkMessageGating(session.user.id);
+  if (!gating.allowed) {
+    return Response.json(
+      {
+        error: "daily_limit_reached",
+        usage: gating.usage,
+        tier: gating.tier,
+      },
+      { status: 429 }
+    );
   }
 
   const messageCount = await countConversationMessages(conversationId);
@@ -98,7 +111,8 @@ export async function POST(req: Request) {
     try {
       const relevantMemories = await retrieveRelevantMemories(
         session.user.id,
-        lastUserText
+        lastUserText,
+        gating.entitlements.maxMemoriesPerPrompt
       );
       memoriesBlock = formatMemoriesForPrompt(relevantMemories);
     } catch {
@@ -151,15 +165,18 @@ export async function POST(req: Request) {
     emotionalIntensity: emotionalResult.intensity,
     memoriesBlock: memoriesBlock || undefined,
     scarcityBlock,
+    isPremium: gating.tier === "premium",
   });
 
-  const modelMessages = await convertToModelMessages(messages);
+  const contextMessages = messages.slice(-gating.entitlements.maxContextMessages);
+  const modelMessages = await convertToModelMessages(contextMessages);
 
   const result = streamText({
     model: getModel(),
     system: systemPrompt,
     messages: modelMessages,
     onFinish: async () => {
+      incrementDailyUsage(session.user.id).catch(() => {});
       // Fire-and-forget: extract emotional memories from conversation
       if (!process.env.OPENAI_API_KEY) return;
       try {

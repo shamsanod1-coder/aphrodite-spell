@@ -8,6 +8,7 @@ import {
   integer,
   real,
   index,
+  uniqueIndex,
   vector,
 } from "drizzle-orm/pg-core";
 
@@ -188,6 +189,61 @@ export const notificationQueue = pgTable(
       table.type,
       table.deliveredAt
     ),
+  ]
+);
+
+// ── Billing tables ────────────────────────────────────────────────────────
+
+export const subscriptions = pgTable(
+  "subscriptions",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    userId: text("user_id")
+      .notNull()
+      .unique()
+      .references(() => user.id, { onDelete: "cascade" }),
+    stripeCustomerId: text("stripe_customer_id").unique(),
+    stripeSubscriptionId: text("stripe_subscription_id").unique(),
+    tier: text("tier", { enum: ["free", "premium"] })
+      .default("free")
+      .notNull(),
+    status: text("status", {
+      enum: [
+        "active",
+        "canceled",
+        "past_due",
+        "incomplete",
+        "trialing",
+        "unpaid",
+      ],
+    })
+      .default("active")
+      .notNull(),
+    currentPeriodEnd: timestamp("current_period_end"),
+    cancelAtPeriodEnd: boolean("cancel_at_period_end").default(false).notNull(),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+    updatedAt: timestamp("updated_at").defaultNow().notNull(),
+  },
+  (table) => [
+    index("subscriptions_user_id_idx").on(table.userId),
+    index("subscriptions_stripe_customer_idx").on(table.stripeCustomerId),
+    index("subscriptions_stripe_sub_idx").on(table.stripeSubscriptionId),
+  ]
+);
+
+export const dailyUsage = pgTable(
+  "daily_usage",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    date: text("date").notNull(),
+    messageCount: integer("message_count").default(0).notNull(),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+  },
+  (table) => [
+    uniqueIndex("daily_usage_user_date_idx").on(table.userId, table.date),
   ]
 );
 

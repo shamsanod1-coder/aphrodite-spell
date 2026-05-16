@@ -30,6 +30,11 @@ export const AnalyticsEvents = {
   WITHDRAWAL_EVENT: "withdrawal_event",
   USER_RETURN_AFTER_DELAY: "user_return_after_delay",
   COOLDOWN_INTERRUPTED: "cooldown_interrupted",
+  PAYWALL_VIEWED: "paywall_viewed",
+  CONVERSION_STARTED: "conversion_started",
+  CONVERSION_COMPLETED: "conversion_completed",
+  QUOTA_HIT: "quota_hit",
+  PREMIUM_RETENTION: "premium_retention",
 } as const;
 
 type EventName = (typeof AnalyticsEvents)[keyof typeof AnalyticsEvents];
@@ -203,5 +208,30 @@ export function trackCooldownInterrupted(
   trackEvent(AnalyticsEvents.COOLDOWN_INTERRUPTED, {
     reason,
     cooldown_type: cooldownType,
+  });
+}
+
+export function trackPaywallViewed(source: string) {
+  trackEvent(AnalyticsEvents.PAYWALL_VIEWED, { source });
+}
+
+export function trackConversionStarted(source: string) {
+  trackEvent(AnalyticsEvents.CONVERSION_STARTED, { source });
+}
+
+export function trackConversionCompleted() {
+  trackEvent(AnalyticsEvents.CONVERSION_COMPLETED);
+}
+
+export function trackQuotaHit(messagesUsed: number, limit: number) {
+  trackEvent(AnalyticsEvents.QUOTA_HIT, {
+    messages_used: messagesUsed,
+    limit,
+  });
+}
+
+export function trackPremiumRetention(daysSinceSubscription: number) {
+  trackEvent(AnalyticsEvents.PREMIUM_RETENTION, {
+    days_since_subscription: daysSinceSubscription,
   });
 }
