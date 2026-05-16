@@ -285,7 +285,7 @@ Env validation uses `@t3-oss/env-nextjs` in `lib/env.ts`. All vars are optional 
 
 `services/ai/providers/index.ts` → `getProvider()`:
 1. If `ANTHROPIC_API_KEY` is set → Anthropic (`claude-sonnet-4-20250514`)
-2. Else if `OPENAI_API_KEY` is set → OpenAI (`gpt-4o`)
+2. Else if `OPENAI_API_KEY` is set → OpenAI (`gpt-4o-mini`)
 3. Else → throws error
 
 ### Companion Persona (Aria)
