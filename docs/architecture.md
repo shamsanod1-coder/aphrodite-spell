@@ -14,6 +14,24 @@ Browser → Next.js Middleware (session refresh) → App Router → React Compon
                                                PostHog (Analytics)
 ```
 
+### Chat & AI Pipeline
+
+```
+ChatInput → useChatController → Vercel AI SDK (useChat) → POST /api/chat
+                                                              ↓
+                                                   streamText (AI SDK v6)
+                                                   ├─ Anthropic (default)
+                                                   └─ OpenAI (fallback)
+                                                              ↓
+                                                   SSE → MessageList (streaming)
+                                                              ↓
+                                                   Supabase (persist on finish)
+```
+
+- Provider abstraction via `services/ai/providers/` — swap models without touching UI
+- Messages stream via `toUIMessageStreamResponse()` using AI SDK v6 UIMessage protocol
+- Conversations + messages persisted to Supabase with RLS policies
+
 ## Key Patterns
 
 ### Supabase SSR
@@ -36,7 +54,7 @@ Three client abstractions handle different execution contexts:
 Zustand stores follow a flat, minimal pattern:
 
 - `auth-store`: User, session, guest status
-- `chat-store`: Messages, conversation state
+- `chat-store`: Messages, conversation state, streaming status, pagination
 - `app-store`: Loading states, connectivity, feature flags
 
 ### Mobile-First Design
@@ -60,10 +78,18 @@ PostHog integrated via `@posthog/next`:
 - Automatic pageview tracking with URL capture
 - User identification linked to Supabase auth
 - Typed event helpers in `lib/posthog/events.ts`
+- Chat events: `conversation_started`, `message_sent`, `message_received`, `message_retry`, `chat_error`
+
+### Database Schema
+
+- `conversations`: Per-user conversation threads with `relationship_stage` tracking
+- `messages`: Individual messages with `sender_type` (user/assistant), content, metadata
+- Both tables have RLS policies scoped to `auth.uid()`
 
 ## Future Considerations
 
 - Sentry for error monitoring
-- Supabase Realtime for live chat
-- Edge Functions for AI inference
+- Supabase Realtime for live typing indicators
+- Multi-conversation support (DB schema already supports it)
 - PWA manifest and service worker
+- Message reactions and emotional tagging
