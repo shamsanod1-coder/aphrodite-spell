@@ -53,7 +53,7 @@ function PostHogIdentify() {
 
     ph.identify(user.id, {
       is_anonymous: isGuest,
-      email: user.email,
+      email: user.email ?? undefined,
     });
   }, [ph, user, isGuest]);
 

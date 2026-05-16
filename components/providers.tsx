@@ -3,7 +3,7 @@
 import { useEffect } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { PostHogProvider } from "@/lib/posthog/provider";
-import { createClient } from "@/lib/supabase/client";
+import { authClient } from "@/lib/auth-client";
 import { useAuthStore } from "@/store/auth-store";
 import { useAppStore } from "@/store/app-store";
 import { trackAppOpen } from "@/lib/posthog/events";
@@ -28,23 +28,19 @@ function AuthListener() {
 
     async function init() {
       try {
-        const supabase = createClient();
-        const {
-          data: { session },
-        } = await supabase.auth.getSession();
+        const { data: sessionData } = await authClient.getSession();
 
         if (!mounted) return;
 
-        if (session) {
-          setSession(session);
-          setUser(session.user);
+        if (sessionData) {
+          setSession(sessionData.session);
+          setUser(sessionData.user);
         } else {
           // Auto-create anonymous session for guest experience
-          const { data, error } = await supabase.auth.signInAnonymously();
+          const { data, error } = await authClient.signIn.anonymous();
           if (error) {
             logger.error("Failed to create anonymous session", error);
-          } else if (data.session) {
-            setSession(data.session);
+          } else if (data) {
             setUser(data.user);
           }
         }
@@ -57,18 +53,8 @@ function AuthListener() {
 
     init();
 
-    const supabase = createClient();
-    const {
-      data: { subscription },
-    } = supabase.auth.onAuthStateChange((_event, session) => {
-      if (!mounted) return;
-      setSession(session);
-      setUser(session?.user ?? null);
-    });
-
     return () => {
       mounted = false;
-      subscription.unsubscribe();
     };
   }, [setUser, setSession, setLoading]);
 

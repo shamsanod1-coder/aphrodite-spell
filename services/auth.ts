@@ -1,55 +1,39 @@
-import { createClient } from "@/lib/supabase/client";
+import { authClient, signIn, signOut as authSignOut } from "@/lib/auth-client";
 
 export async function signInAnonymously() {
-  const supabase = createClient();
-  const { data, error } = await supabase.auth.signInAnonymously();
-  if (error) throw error;
-  return data;
+  const result = await signIn.anonymous();
+  if (result.error) throw new Error(result.error.message);
+  return result.data;
 }
 
 export async function signInWithMagicLink(email: string) {
-  const supabase = createClient();
-  const { data, error } = await supabase.auth.signInWithOtp({
-    email,
-    options: {
-      emailRedirectTo: `${window.location.origin}/auth/callback`,
-    },
-  });
-  if (error) throw error;
-  return data;
+  const result = await signIn.magicLink({ email });
+  if (result.error) throw new Error(result.error.message);
+  return result.data;
 }
 
 export async function linkEmailToAnonymousUser(email: string) {
-  const supabase = createClient();
-  const { data, error } = await supabase.auth.updateUser({
+  const result = await signIn.magicLink({
     email,
+    callbackURL: "/chat",
   });
-  if (error) throw error;
-  return data;
+  if (result.error) throw new Error(result.error.message);
+  return result.data;
 }
 
 export async function signOut() {
-  const supabase = createClient();
-  const { error } = await supabase.auth.signOut();
-  if (error) throw error;
+  const result = await authSignOut();
+  if (result.error) throw new Error(result.error.message);
 }
 
 export async function getSession() {
-  const supabase = createClient();
-  const {
-    data: { session },
-    error,
-  } = await supabase.auth.getSession();
-  if (error) throw error;
-  return session;
+  const result = await authClient.getSession();
+  if (result.error) throw new Error(result.error.message);
+  return result.data;
 }
 
 export async function getUser() {
-  const supabase = createClient();
-  const {
-    data: { user },
-    error,
-  } = await supabase.auth.getUser();
-  if (error) throw error;
-  return user;
+  const result = await authClient.getSession();
+  if (result.error) throw new Error(result.error.message);
+  return result.data?.user ?? null;
 }
