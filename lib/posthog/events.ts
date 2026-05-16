@@ -20,6 +20,11 @@ export const AnalyticsEvents = {
   MEMORY_EXTRACTED: "memory_extracted",
   MEMORY_RETRIEVED: "memory_retrieved",
   MEMORY_DECAYED: "memory_decayed",
+  RITUAL_TRIGGERED: "ritual_triggered",
+  RITUAL_PERSISTED: "ritual_persisted",
+  INACTIVITY_DETECTED: "inactivity_detected",
+  REENGAGEMENT_GENERATED: "reengagement_generated",
+  NOTIFICATION_SCHEDULED: "notification_scheduled",
 } as const;
 
 type EventName = (typeof AnalyticsEvents)[keyof typeof AnalyticsEvents];
@@ -83,4 +88,57 @@ export function trackEmotionalStateShift(
 
 export function trackAttachmentSignalDetected(properties?: Record<string, unknown>) {
   trackEvent(AnalyticsEvents.ATTACHMENT_SIGNAL_DETECTED, properties);
+}
+
+export function trackRitualTriggered(
+  ritualType: string,
+  subtype: string,
+  relationshipStage: string
+) {
+  trackEvent(AnalyticsEvents.RITUAL_TRIGGERED, {
+    ritual_type: ritualType,
+    subtype,
+    relationship_stage: relationshipStage,
+  });
+}
+
+export function trackRitualPersisted(ritualId: string, ritualType: string) {
+  trackEvent(AnalyticsEvents.RITUAL_PERSISTED, {
+    ritual_id: ritualId,
+    ritual_type: ritualType,
+  });
+}
+
+export function trackInactivityDetected(
+  classification: string,
+  severity: string,
+  hoursSinceLastMessage: number | null
+) {
+  trackEvent(AnalyticsEvents.INACTIVITY_DETECTED, {
+    classification,
+    severity,
+    hours_since_last_message: hoursSinceLastMessage,
+  });
+}
+
+export function trackReengagementGenerated(
+  classification: string,
+  style: string,
+  includesMemoryCallback: boolean
+) {
+  trackEvent(AnalyticsEvents.REENGAGEMENT_GENERATED, {
+    classification,
+    style,
+    includes_memory_callback: includesMemoryCallback,
+  });
+}
+
+export function trackNotificationScheduled(
+  type: string,
+  delaySeconds: number
+) {
+  trackEvent(AnalyticsEvents.NOTIFICATION_SCHEDULED, {
+    notification_type: type,
+    delay_seconds: delaySeconds,
+  });
 }
