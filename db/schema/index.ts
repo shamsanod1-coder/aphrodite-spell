@@ -6,7 +6,9 @@ import {
   timestamp,
   jsonb,
   integer,
+  real,
   index,
+  vector,
 } from "drizzle-orm/pg-core";
 
 // ── Better Auth core tables ──────────────────────────────────────────────
@@ -131,5 +133,47 @@ export const messages = pgTable(
   (table) => [
     index("messages_conversation_id_idx").on(table.conversationId),
     index("messages_created_at_idx").on(table.conversationId, table.createdAt),
+  ]
+);
+
+// ── Memory tables ─────────────────────────────────────────────────────────
+
+export const memories = pgTable(
+  "memories",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    conversationId: uuid("conversation_id")
+      .notNull()
+      .references(() => conversations.id, { onDelete: "cascade" }),
+    content: text("content").notNull(),
+    memoryType: text("memory_type", {
+      enum: [
+        "insecurity",
+        "routine",
+        "desire",
+        "emotional_disclosure",
+        "preference",
+        "recurring_theme",
+        "emotional_trigger",
+        "attachment_signal",
+      ],
+    }).notNull(),
+    emotionalWeight: real("emotional_weight").notNull().default(0.5),
+    salienceScore: real("salience_score").notNull().default(0.5),
+    embedding: vector("embedding", { dimensions: 1536 }),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+    lastReferencedAt: timestamp("last_referenced_at"),
+  },
+  (table) => [
+    index("memories_user_id_idx").on(table.userId),
+    index("memories_conversation_id_idx").on(table.conversationId),
+    index("memories_salience_idx").on(table.userId, table.salienceScore),
+    index("memories_embedding_idx").using(
+      "hnsw",
+      table.embedding.op("vector_cosine_ops")
+    ),
   ]
 );

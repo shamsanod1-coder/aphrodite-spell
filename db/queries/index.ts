@@ -20,3 +20,15 @@ export {
   type CreateMessageInput,
   type PaginateMessagesOptions,
 } from "./messages";
+
+export {
+  createMemory,
+  createMemories,
+  findSimilarMemories,
+  getUserMemories,
+  updateMemoryReference,
+  updateMemorySalience,
+  deleteStaleMemories,
+  type Memory,
+  type CreateMemoryInput,
+} from "./memories";

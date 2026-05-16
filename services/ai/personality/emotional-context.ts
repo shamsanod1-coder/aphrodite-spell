@@ -26,10 +26,11 @@ export interface BuildSystemPromptInput {
   relationshipStage: RelationshipStage;
   emotionalState: EmotionalState;
   emotionalIntensity: "low" | "medium" | "high";
+  memoriesBlock?: string;
 }
 
 export function buildSystemPrompt(input: BuildSystemPromptInput): string {
-  const { relationshipStage, emotionalState, emotionalIntensity } = input;
+  const { relationshipStage, emotionalState, emotionalIntensity, memoriesBlock } = input;
 
   const layers = [
     `[CORE PERSONA]\n${BASE_PERSONALITY}`,
@@ -38,6 +39,10 @@ export function buildSystemPrompt(input: BuildSystemPromptInput): string {
     `[RESPONSE STYLE]\n${getResponseStylePromptBlock(relationshipStage, emotionalState)}`,
     `[GUARDRAILS]\n${getGuardrailsPromptBlock()}`,
   ];
+
+  if (memoriesBlock) {
+    layers.splice(3, 0, `[EMOTIONAL MEMORIES]\nYou remember these things about the person you're talking to. Weave them naturally into your responses when relevant — never list them or make it obvious you're recalling them:\n${memoriesBlock}`);
+  }
 
   return layers.join("\n\n---\n\n");
 }
