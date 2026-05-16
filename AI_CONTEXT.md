@@ -23,7 +23,8 @@ See `PRD.md` for the full product requirements document.
 | UI Library | React | 19.2.4 |
 | Language | TypeScript | ^5 |
 | Styling | Tailwind CSS v4 + shadcn/ui (base-nova) | ^4 |
-| Backend | Supabase (Postgres, Auth, Realtime) | supabase-js ^2.105.4, ssr ^0.10.3 |
+| Database | PostgreSQL 16 + pgvector (via Docker) | drizzle-orm ^0.44.2, drizzle-kit ^0.31.1 |
+| Auth | Better Auth | better-auth ^1.2.15 |
 | AI SDK | Vercel AI SDK v6 | ai ^6.0.184, @ai-sdk/react ^3.0.186 |
 | AI Providers | Anthropic (default), OpenAI (fallback) | @ai-sdk/anthropic ^3.0.78, @ai-sdk/openai ^3.0.64 |
 | State | Zustand | ^5.0.13 |
@@ -47,8 +48,15 @@ See `PRD.md` for the full product requirements document.
 aphrodite-spell/
 ├── app/                          # Next.js App Router
 │   ├── api/
-│   │   └── chat/
-│   │       └── route.ts          # POST /api/chat — streaming AI endpoint
+│   │   ├── auth/
+│   │   │   └── [...all]/
+│   │   │       └── route.ts      # Better Auth catch-all API handler
+│   │   ├── chat/
+│   │   │   └── route.ts          # POST /api/chat — streaming AI endpoint
+│   │   ├── conversations/
+│   │   │   └── route.ts          # POST /api/conversations — get or create conversation
+│   │   └── messages/
+│   │       └── route.ts          # GET/POST/PATCH /api/messages — message CRUD
 │   ├── auth/
 │   │   ├── page.tsx              # Magic link / guest upgrade UI
 │   │   └── callback/
@@ -79,25 +87,23 @@ aphrodite-spell/
 │       └── button.tsx            # shadcn/ui button component (CVA-based)
 │
 ├── hooks/
-│   ├── use-chat.ts               # useChatController — orchestrates AI SDK useChat + Supabase persistence + analytics
+│   ├── use-chat.ts               # useChatController — orchestrates AI SDK useChat + API persistence + analytics
 │   └── use-scroll-anchor.ts      # Auto-scroll to bottom on new messages
 │
 ├── lib/
+│   ├── auth.ts                   # Better Auth server instance (anonymous + magicLink plugins, Drizzle adapter)
+│   ├── auth-client.ts            # Better Auth client (anonymous + magicLink client plugins)
 │   ├── companion.ts              # Companion config (name: "Aria", tagline, avatar placeholder)
-│   ├── env.ts                    # t3-oss env validation (Supabase, PostHog, AI keys)
+│   ├── env.ts                    # t3-oss env validation (DATABASE_URL, BETTER_AUTH_*, PostHog, AI keys)
 │   ├── logger.ts                 # Structured console logger (debug/info/warn/error)
 │   ├── utils.ts                  # cn() utility (clsx + tailwind-merge)
-│   ├── posthog/
-│   │   ├── events.ts             # Analytics event constants + typed track helpers
-│   │   └── provider.tsx          # PostHog init, pageview tracking, user identification
-│   └── supabase/
-│       ├── client.ts             # Browser client (singleton, typed with Database)
-│       ├── server.ts             # Server client (per-request, cookie-based)
-│       └── middleware.ts         # Middleware client (refreshes auth tokens)
+│   └── posthog/
+│       ├── events.ts             # Analytics event constants + typed track helpers
+│       └── provider.tsx          # PostHog init, pageview tracking, user identification
 │
 ├── services/
-│   ├── auth.ts                   # Auth service: signIn, signOut, magicLink, linkEmail, getUser
-│   ├── chat.ts                   # Chat CRUD: getOrCreateConversation, loadMessages, saveMessage, updateMessage
+│   ├── auth.ts                   # Auth service: signIn (anonymous, magicLink), signOut, linkEmail, getUser (Better Auth)
+│   ├── chat.ts                   # Chat client service: calls /api/conversations and /api/messages endpoints
 │   └── ai/
 │       ├── index.ts              # AI orchestration: getModel(), SYSTEM_PROMPT re-export
 │       ├── prompts/
@@ -112,15 +118,10 @@ aphrodite-spell/
 │   ├── auth-store.ts             # Auth state: user, session, isGuest, isLoading
 │   └── chat-store.ts             # Chat state: messages, conversationId, streaming, pagination, error
 │
-├── types/
-│   └── database.ts               # Supabase Database type with all tables (Row/Insert/Update/Relationships)
-│
-├── supabase/
-│   └── migrations/
-│       ├── 00001_create_profiles.sql     # profiles table + RLS + auto-create trigger
-│       ├── 00002_create_sessions.sql     # sessions table + RLS + indexes
-│       ├── 00003_create_conversations.sql # conversations table + RLS + indexes
-│       └── 00004_create_messages.sql     # messages table + RLS (subquery join) + indexes
+├── db/
+│   ├── schema/
+│   │   └── index.ts              # Drizzle table definitions (Better Auth + app tables)
+│   └── index.ts                  # Drizzle client instance
 │
 ├── docs/
 │   └── architecture.md           # Architecture overview and data flow diagrams
@@ -129,7 +130,9 @@ aphrodite-spell/
 │   └── workflows/
 │       └── ci.yml                # CI: lint → typecheck → build (Node 22, npm ci)
 │
-├── middleware.ts                  # Next.js middleware: refreshes Supabase session on every request
+├── docker-compose.yml            # PostgreSQL 16 + pgvector dev database
+├── drizzle.config.ts             # Drizzle Kit config for migrations
+├── middleware.ts                  # Next.js middleware (pass-through; Better Auth handles sessions via cookies)
 ├── next.config.ts                # Next.js config (currently empty/default)
 ├── tsconfig.json                 # TypeScript config: strict, bundler resolution, @/* paths
 ├── components.json               # shadcn/ui config: base-nova style, lucide icons
@@ -146,11 +149,13 @@ aphrodite-spell/
 ### Data Flow
 
 ```
-Browser → Next.js Middleware (session refresh) → App Router → React Components
-                                                      ↓
-                                               Supabase (Auth + DB)
-                                                      ↓
-                                               PostHog (Analytics)
+Browser → Next.js Middleware → App Router → React Components
+                                    ↓
+                          Better Auth (Auth via cookies)
+                                    ↓
+                          PostgreSQL (via Drizzle ORM)
+                                    ↓
+                          PostHog (Analytics)
 ```
 
 ### Chat & AI Pipeline
@@ -164,7 +169,7 @@ ChatInput → useChatController → Vercel AI SDK (useChat) → POST /api/chat
                                                               ↓
                                                    SSE → MessageList (streaming)
                                                               ↓
-                                                   Supabase (persist on finish)
+                                                   PostgreSQL (persist on finish via Drizzle)
 ```
 
 ### Key Architectural Decisions
@@ -172,9 +177,10 @@ ChatInput → useChatController → Vercel AI SDK (useChat) → POST /api/chat
 1. **AI SDK v6** (not v5): Uses `UIMessage` with `parts` array, `sendMessage()` instead of `append()`, `status` instead of `isLoading`, `toUIMessageStreamResponse()` instead of `toDataStreamResponse()`, `convertToModelMessages()` for model message conversion
 2. **Dual state management**: AI SDK manages streaming state internally; Zustand store mirrors messages for UI rendering and persistence
 3. **Provider abstraction**: `services/ai/providers/` — swap AI models without touching UI code
-4. **Supabase typed client**: `@supabase/supabase-js` v2.105+ requires `Relationships` field on all table type definitions (GenericTable constraint)
-5. **RLS everywhere**: All tables have row-level security. Messages use subquery joins to verify conversation ownership
-6. **Anonymous-first auth**: Auto-creates anonymous Supabase session on first visit; users can upgrade to email via magic link
+4. **Drizzle ORM**: Type-safe database queries with PostgreSQL, schema defined in `db/schema/index.ts`
+5. **Application-level auth checks**: All API routes verify session ownership via Better Auth before database operations
+6. **Anonymous-first auth**: Auto-creates anonymous Better Auth session on first visit; users can upgrade to email via magic link
+7. **Server/client boundary**: Drizzle + pg runs server-side only in API routes; client components use `fetch()` to call API endpoints
 
 ---
 
@@ -192,7 +198,7 @@ ChatInput → useChatController → Vercel AI SDK (useChat) → POST /api/chat
 | created_at | timestamptz | Default now() |
 | updated_at | timestamptz | Default now() |
 
-Auto-created via trigger `on_auth_user_created` when a new auth user is inserted.
+Auto-created via Better Auth `databaseHooks.user.create.after` hook when a new user signs up.
 
 #### `sessions` (app engagement tracking)
 | Column | Type | Notes |
@@ -239,27 +245,27 @@ All tables have `SELECT`, `INSERT`, `UPDATE` policies scoped to `auth.uid()`.
 
 | Variable | Required | Server/Client | Description |
 |----------|----------|---------------|-------------|
-| `NEXT_PUBLIC_SUPABASE_URL` | Yes | Client | Supabase project URL |
-| `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Yes | Client | Supabase anonymous key |
-| `SUPABASE_SERVICE_ROLE_KEY` | No | Server | Supabase service role key |
+| `DATABASE_URL` | Yes | Server | PostgreSQL connection string |
+| `BETTER_AUTH_SECRET` | Yes | Server | Secret key for Better Auth (min 32 chars) |
+| `BETTER_AUTH_URL` | Yes | Server | App base URL for auth callbacks |
 | `NEXT_PUBLIC_POSTHOG_KEY` | No | Client | PostHog project API key |
 | `NEXT_PUBLIC_POSTHOG_HOST` | No | Client | PostHog instance URL |
 | `ANTHROPIC_API_KEY` | Yes* | Server | Anthropic API key (*required if using Anthropic provider) |
 | `OPENAI_API_KEY` | Yes* | Server | OpenAI API key (*required if Anthropic unavailable) |
 | `SKIP_ENV_VALIDATION` | No | Both | Set to "true" to skip env validation (used in CI) |
 
-Env validation uses `@t3-oss/env-nextjs` in `lib/env.ts`. All vars are optional in schema but the app won't function without Supabase vars and at least one AI provider key.
+Env validation uses `@t3-oss/env-nextjs` in `lib/env.ts`. All vars are optional in schema but the app won't function without `DATABASE_URL`, `BETTER_AUTH_SECRET`, `BETTER_AUTH_URL`, and at least one AI provider key.
 
 ---
 
 ## Authentication Flow
 
-1. **First visit** → Anonymous Supabase session created automatically via `signInAnonymously()`
+1. **First visit** → Anonymous Better Auth session created automatically via `signIn.anonymous()`
 2. **Guest user** → Can use chat immediately, data persisted under anonymous user ID
-3. **Email upgrade** → `/auth` page: links email via magic link (preserves existing data)
-4. **Auth callback** → `/auth/callback` exchanges code for session via `exchangeCodeForSession()`
-5. **Session refresh** → Middleware refreshes auth token on every request
-6. **State sync** → `AuthListener` in `providers.tsx` syncs Supabase auth state to Zustand
+3. **Email upgrade** → `/auth` page: links email via magic link (preserves existing data via `onLinkAccount` callback)
+4. **Auth callback** → `/auth/callback` redirects user after Better Auth handles verification internally
+5. **Session management** → Better Auth manages sessions via cookies; no middleware refresh needed
+6. **State sync** → `AuthListener` in `providers.tsx` syncs Better Auth session state to Zustand via `authClient.getSession()`
 
 ---
 
@@ -267,16 +273,16 @@ Env validation uses `@t3-oss/env-nextjs` in `lib/env.ts`. All vars are optional 
 
 ### How It Works
 
-1. **Initialization**: `useChatController` loads or creates a conversation via `getOrCreateConversation(userId)`, fetches message history
-2. **Sending**: User types message → optimistic add to store → persist to Supabase → trigger AI SDK `sendMessage()`
+1. **Initialization**: `useChatController` loads or creates a conversation via `POST /api/conversations`, fetches message history via `GET /api/messages`
+2. **Sending**: User types message → optimistic add to store → persist via `POST /api/messages` → trigger AI SDK `sendMessage()`
 3. **Streaming**: AI SDK calls `POST /api/chat` → `streamText()` with provider model → `toUIMessageStreamResponse()` → SSE to client
-4. **Receiving**: Streaming chunks update a placeholder assistant message in the store; on finish, the complete response is persisted to Supabase
+4. **Receiving**: Streaming chunks update a placeholder assistant message in the store; on finish, the complete response is persisted via `POST /api/messages`
 5. **Retry**: On error, removes failed assistant message, re-sends last user message
 
 ### API Route (`POST /api/chat`)
 
-1. Authenticates via Supabase server client (`getUser()`)
-2. Verifies conversation ownership via RLS count query
+1. Authenticates via Better Auth server (`auth.api.getSession()`)
+2. Verifies conversation ownership via Drizzle query (application-level auth check)
 3. Converts `UIMessage[]` → model messages via `convertToModelMessages()`
 4. Calls `streamText()` with selected provider model and system prompt
 5. Returns `result.toUIMessageStreamResponse()`
@@ -303,9 +309,9 @@ Defined in `services/ai/prompts/system.ts`. Key traits:
 ## State Management (Zustand)
 
 ### `auth-store`
-- `user: User | null` — Current Supabase user
-- `session: Session | null` — Current Supabase session
-- `isGuest: boolean` — Derived from `user.is_anonymous`
+- `user: AuthUser | null` — Current Better Auth user
+- `session: AuthSession | null` — Current Better Auth session
+- `isGuest: boolean` — Derived from `user.isAnonymous`
 - `isLoading: boolean` — Auth initialization in progress
 
 ### `chat-store`
@@ -402,10 +408,11 @@ All jobs: Ubuntu latest, Node 22, npm cache.
 
 ## Important Patterns & Gotchas
 
-### Supabase Type System
-- `types/database.ts` must include `Relationships` field on every table (required by `@supabase/supabase-js` v2.105+ / postgrest-js v2.105+)
-- Without `Relationships`, all `.from()` calls resolve to `never` type
-- Supabase clients are typed with `Database` generic: `createBrowserClient<Database>()`, `createServerClient<Database>()`
+### Drizzle ORM
+- Schema defined in `db/schema/index.ts` with both Better Auth tables and app tables
+- Drizzle client in `db/index.ts` — server-side only, never import in client components
+- Use `drizzle-kit generate` to create migrations, `drizzle-kit migrate` to apply them
+- All queries use Drizzle's type-safe query builder (e.g., `db.select().from(table).where(...)`)
 
 ### AI SDK v6 vs v5
 Key differences (v6 is installed):
@@ -417,11 +424,12 @@ Key differences (v6 is installed):
 - Transport configured via `DefaultChatTransport` class, not inline options
 - `body` for extra request data goes into `DefaultChatTransport({ body: ... })`
 
-### Supabase SSR Pattern
-Three client abstractions:
-1. **Browser** (`lib/supabase/client.ts`): Singleton, for client components
-2. **Server** (`lib/supabase/server.ts`): Per-request, cookie-based, for server components + route handlers
-3. **Middleware** (`lib/supabase/middleware.ts`): Refreshes auth tokens on every request
+### Better Auth Pattern
+- **Server** (`lib/auth.ts`): Better Auth instance with Drizzle adapter, anonymous + magicLink plugins
+- **Client** (`lib/auth-client.ts`): Better Auth client with anonymous + magicLink client plugins
+- **API route** (`app/api/auth/[...all]/route.ts`): Catch-all handler for all auth endpoints
+- Sessions managed via cookies — no middleware refresh needed
+- `onLinkAccount` callback transfers conversations/messages from anonymous to authenticated user
 
 ### shadcn/ui
 - Config in `components.json`: base-nova style, lucide icons

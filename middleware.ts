@@ -1,8 +1,9 @@
-import { type NextRequest } from "next/server";
-import { updateSession } from "@/lib/supabase/middleware";
+import { type NextRequest, NextResponse } from "next/server";
 
-export async function middleware(request: NextRequest) {
-  return await updateSession(request);
+export async function middleware(_request: NextRequest) {
+  // Better Auth manages sessions via cookies automatically through
+  // the /api/auth/[...all] route handler.
+  return NextResponse.next();
 }
 
 export const config = {

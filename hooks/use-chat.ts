@@ -19,24 +19,24 @@ function getTextContent(message: UIMessage): string {
     .join("");
 }
 
-function dbRowToChatMessage(
+function apiRowToChatMessage(
   row: {
     id: string;
-    conversation_id: string;
-    sender_type: "user" | "assistant";
+    conversationId: string;
+    senderType: "user" | "assistant";
     content: string;
     metadata: unknown;
-    created_at: string;
+    createdAt: string;
   },
   status: ChatMessage["status"] = "sent"
 ): ChatMessage {
   return {
     id: row.id,
-    conversationId: row.conversation_id,
-    senderType: row.sender_type,
+    conversationId: row.conversationId,
+    senderType: row.senderType,
     content: row.content,
     metadata: (row.metadata as Record<string, unknown>) ?? null,
-    createdAt: row.created_at,
+    createdAt: row.createdAt,
     status,
   };
 }
@@ -113,11 +113,11 @@ export function useChatController() {
 
     async function init() {
       try {
-        const conversation = await getOrCreateConversation(user!.id);
+        const conversation = await getOrCreateConversation();
         setConversationId(conversation.id);
 
         const msgs = await loadMessages(conversation.id);
-        const chatMessages = msgs.map((m) => dbRowToChatMessage(m));
+        const chatMessages = msgs.map((m) => apiRowToChatMessage(m));
         setMessages(chatMessages);
         setHasMoreMessages(msgs.length >= 50);
 
@@ -206,7 +206,7 @@ export function useChatController() {
       );
       if (olderMsgs.length < 50) setHasMoreMessages(false);
       if (olderMsgs.length > 0) {
-        prependMessages(olderMsgs.map((m) => dbRowToChatMessage(m)));
+        prependMessages(olderMsgs.map((m) => apiRowToChatMessage(m)));
       }
     } catch {
       setError("Failed to load older messages");

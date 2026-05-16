@@ -4,15 +4,18 @@ import {
   convertToModelMessages,
 } from "ai";
 import { getModel, SYSTEM_PROMPT } from "@/services/ai";
-import { createClient } from "@/lib/supabase/server";
+import { auth } from "@/lib/auth";
+import { headers } from "next/headers";
+import { db } from "@/db";
+import { conversations } from "@/db/schema";
+import { eq, and } from "drizzle-orm";
 
 export async function POST(req: Request) {
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const session = await auth.api.getSession({
+    headers: await headers(),
+  });
 
-  if (!user) {
+  if (!session) {
     return new Response("Unauthorized", { status: 401 });
   }
 
@@ -21,13 +24,18 @@ export async function POST(req: Request) {
     conversationId: string;
   };
 
-  const { count } = await supabase
-    .from("conversations")
-    .select("id", { count: "exact", head: true })
-    .eq("id", conversationId)
-    .eq("user_id", user.id);
+  const [conversation] = await db
+    .select({ id: conversations.id })
+    .from(conversations)
+    .where(
+      and(
+        eq(conversations.id, conversationId),
+        eq(conversations.userId, session.user.id)
+      )
+    )
+    .limit(1);
 
-  if (!count) {
+  if (!conversation) {
     return new Response("Conversation not found", { status: 404 });
   }
 

@@ -1,51 +1,37 @@
-import { createClient } from "@/lib/supabase/client";
+export interface ConversationRow {
+  id: string;
+  userId: string;
+  relationshipStage: string;
+  createdAt: string;
+  updatedAt: string;
+}
 
-export async function getOrCreateConversation(userId: string) {
-  const supabase = createClient();
+export interface MessageRow {
+  id: string;
+  conversationId: string;
+  senderType: "user" | "assistant";
+  content: string;
+  metadata: unknown;
+  createdAt: string;
+}
 
-  const { data: existing, error: fetchError } = await supabase
-    .from("conversations")
-    .select("*")
-    .eq("user_id", userId)
-    .order("updated_at", { ascending: false })
-    .limit(1)
-    .single();
-
-  if (existing && !fetchError) {
-    return existing;
-  }
-
-  const { data: created, error: createError } = await supabase
-    .from("conversations")
-    .insert({ user_id: userId })
-    .select()
-    .single();
-
-  if (createError) throw createError;
-  return created;
+export async function getOrCreateConversation(): Promise<ConversationRow> {
+  const res = await fetch("/api/conversations", { method: "POST" });
+  if (!res.ok) throw new Error("Failed to get/create conversation");
+  return res.json();
 }
 
 export async function loadMessages(
   conversationId: string,
   limit = 50,
   before?: string
-) {
-  const supabase = createClient();
+): Promise<MessageRow[]> {
+  const params = new URLSearchParams({ conversationId, limit: String(limit) });
+  if (before) params.set("before", before);
 
-  let query = supabase
-    .from("messages")
-    .select("*")
-    .eq("conversation_id", conversationId)
-    .order("created_at", { ascending: true })
-    .limit(limit);
-
-  if (before) {
-    query = query.lt("created_at", before);
-  }
-
-  const { data, error } = await query;
-  if (error) throw error;
-  return data ?? [];
+  const res = await fetch(`/api/messages?${params}`);
+  if (!res.ok) throw new Error("Failed to load messages");
+  return res.json();
 }
 
 export async function saveMessage(
@@ -53,40 +39,25 @@ export async function saveMessage(
   senderType: "user" | "assistant",
   content: string,
   metadata?: Record<string, string | number | boolean | null>
-) {
-  const supabase = createClient();
-
-  const { data, error } = await supabase
-    .from("messages")
-    .insert({
-      conversation_id: conversationId,
-      sender_type: senderType,
-      content,
-      metadata: metadata ?? null,
-    })
-    .select()
-    .single();
-
-  if (error) throw error;
-
-  await supabase
-    .from("conversations")
-    .update({ updated_at: new Date().toISOString() })
-    .eq("id", conversationId);
-
-  return data;
+): Promise<MessageRow> {
+  const res = await fetch("/api/messages", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ conversationId, senderType, content, metadata }),
+  });
+  if (!res.ok) throw new Error("Failed to save message");
+  return res.json();
 }
 
-export async function updateMessage(messageId: string, content: string) {
-  const supabase = createClient();
-
-  const { data, error } = await supabase
-    .from("messages")
-    .update({ content })
-    .eq("id", messageId)
-    .select()
-    .single();
-
-  if (error) throw error;
-  return data;
+export async function updateMessage(
+  messageId: string,
+  content: string
+): Promise<MessageRow> {
+  const res = await fetch("/api/messages", {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ messageId, content }),
+  });
+  if (!res.ok) throw new Error("Failed to update message");
+  return res.json();
 }

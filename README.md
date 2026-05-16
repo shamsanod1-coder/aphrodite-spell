@@ -6,7 +6,8 @@ Emotionally adaptive AI companion — mobile-first, text-first, retention-focuse
 
 - **Framework**: Next.js 15 (App Router, React 19, TypeScript)
 - **Styling**: Tailwind CSS v4, shadcn/ui
-- **Backend**: Supabase (Postgres, Auth, Realtime, Storage)
+- **Database**: PostgreSQL 16 + pgvector (via Docker Compose, Drizzle ORM)
+- **Auth**: Better Auth (anonymous + magic link)
 - **State**: Zustand
 - **Analytics**: PostHog
 - **Deployment**: Vercel
@@ -17,17 +18,23 @@ Emotionally adaptive AI companion — mobile-first, text-first, retention-focuse
 
 - Node.js 22+
 - npm 10+
-- Supabase project (for auth & database)
+- Docker (for local PostgreSQL)
 
 ### Setup
 
 ```bash
+# Start PostgreSQL database
+docker compose up -d
+
 # Install dependencies
 npm install
 
 # Copy environment variables
 cp .env.example .env.local
 # Edit .env.local with your credentials
+
+# Run database migrations
+npx drizzle-kit migrate
 
 # Start dev server
 npm run dev
@@ -39,13 +46,13 @@ Open [http://localhost:3000](http://localhost:3000).
 
 | Variable | Required | Description |
 |----------|----------|-------------|
-| `NEXT_PUBLIC_SUPABASE_URL` | Yes | Supabase project URL |
-| `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Yes | Supabase anonymous key |
-| `SUPABASE_SERVICE_ROLE_KEY` | No | Supabase service role key |
+| `DATABASE_URL` | Yes | PostgreSQL connection string |
+| `BETTER_AUTH_SECRET` | Yes | Secret key for Better Auth (min 32 chars) |
+| `BETTER_AUTH_URL` | Yes | App base URL (e.g. `http://localhost:3000`) |
 | `NEXT_PUBLIC_POSTHOG_KEY` | No | PostHog project API key |
 | `NEXT_PUBLIC_POSTHOG_HOST` | No | PostHog instance URL |
-| `OPENAI_API_KEY` | No | OpenAI API key (future) |
-| `ANTHROPIC_API_KEY` | No | Anthropic API key (future) |
+| `ANTHROPIC_API_KEY` | Yes* | Anthropic API key (*or OpenAI key required) |
+| `OPENAI_API_KEY` | Yes* | OpenAI API key (*fallback if no Anthropic key) |
 
 ## Scripts
 
@@ -74,33 +81,41 @@ npm run format:check # Check formatting
 │   ├── layout/           # App shell, bottom nav
 │   ├── providers.tsx     # Client providers wrapper
 │   └── ui/               # shadcn/ui components
+├── db/
+│   ├── schema/           # Drizzle table definitions
+│   └── index.ts          # Drizzle client instance
 ├── lib/
-│   ├── supabase/         # Supabase client abstractions
+│   ├── auth.ts           # Better Auth server instance
+│   ├── auth-client.ts    # Better Auth client
 │   ├── posthog/          # Analytics provider & events
 │   ├── env.ts            # Environment variable validation
 │   ├── logger.ts         # Logging abstraction
 │   └── utils.ts          # Shared utilities
 ├── services/             # Business logic services
 ├── store/                # Zustand state stores
-├── types/                # TypeScript type definitions
-├── supabase/
-│   └── migrations/       # Database migrations
 └── docs/
     └── architecture.md   # Architecture documentation
 ```
 
 ## Authentication
 
-- **Guest access**: Anonymous Supabase session created on first visit
+- **Guest access**: Anonymous Better Auth session created on first visit
 - **Magic link**: Email-based passwordless authentication
-- **Upgrade flow**: Guests can link email to preserve data
+- **Upgrade flow**: Guests can link email to preserve data (conversations transferred automatically)
 
 ## Database
 
-Migrations are in `supabase/migrations/`. Apply them via the Supabase dashboard or CLI.
+Schema defined in `db/schema/index.ts` using Drizzle ORM. Migrations managed via Drizzle Kit.
 
-- `profiles` — User profile data, linked to `auth.users`
-- `sessions` — App session tracking for engagement analytics
+```bash
+# Generate migration after schema changes
+npx drizzle-kit generate
+
+# Apply migrations
+npx drizzle-kit migrate
+```
+
+Tables: `profiles`, `app_sessions`, `conversations`, `messages` (plus Better Auth tables).
 
 ## Deployment
 
