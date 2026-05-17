@@ -79,3 +79,20 @@ export {
   type AttachmentStyle,
   type ChurnRisk,
 } from "./emotional-profiles";
+
+export {
+  getExperiment,
+  listExperiments,
+  createExperiment,
+  updateExperiment,
+  deleteExperiment,
+  getVariantsForExperiment,
+  createVariants,
+  getExperimentAssignment,
+  createAssignment,
+  getActiveExperimentAssignments,
+  getRunningExperimentByKey,
+  type Experiment as ExperimentRow,
+  type ExperimentVariant,
+  type ExperimentAssignment,
+} from "./experiments";

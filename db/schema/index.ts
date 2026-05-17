@@ -281,6 +281,87 @@ export const userEmotionalProfiles = pgTable(
   ]
 );
 
+// ── Experiment tables ────────────────────────────────────────────────────
+
+export const experiments = pgTable(
+  "experiments",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    key: text("key").notNull().unique(),
+    name: text("name").notNull(),
+    description: text("description"),
+    status: text("status", {
+      enum: ["draft", "running", "paused", "completed"],
+    })
+      .default("draft")
+      .notNull(),
+    dimension: text("dimension", {
+      enum: [
+        "warmth",
+        "teasing",
+        "scarcity",
+        "directness",
+        "ritual_frequency",
+        "verbosity",
+      ],
+    }).notNull(),
+    rolloutPercentage: integer("rollout_percentage").default(0).notNull(),
+    safetyValidated: boolean("safety_validated").default(false).notNull(),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+    updatedAt: timestamp("updated_at").defaultNow().notNull(),
+    startedAt: timestamp("started_at"),
+    completedAt: timestamp("completed_at"),
+  },
+  (table) => [
+    index("experiments_status_idx").on(table.status),
+    index("experiments_dimension_idx").on(table.dimension),
+    index("experiments_key_idx").on(table.key),
+  ]
+);
+
+export const experimentVariants = pgTable(
+  "experiment_variants",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    experimentId: uuid("experiment_id")
+      .notNull()
+      .references(() => experiments.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    isControl: boolean("is_control").default(false).notNull(),
+    percentage: integer("percentage").notNull(),
+    config: jsonb("config").notNull(),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+  },
+  (table) => [
+    index("variants_experiment_id_idx").on(table.experimentId),
+  ]
+);
+
+export const experimentAssignments = pgTable(
+  "experiment_assignments",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    experimentId: uuid("experiment_id")
+      .notNull()
+      .references(() => experiments.id, { onDelete: "cascade" }),
+    variantId: uuid("variant_id")
+      .notNull()
+      .references(() => experimentVariants.id, { onDelete: "cascade" }),
+    assignedAt: timestamp("assigned_at").defaultNow().notNull(),
+  },
+  (table) => [
+    uniqueIndex("assignments_user_experiment_idx").on(
+      table.userId,
+      table.experimentId
+    ),
+    index("assignments_experiment_id_idx").on(table.experimentId),
+    index("assignments_variant_id_idx").on(table.variantId),
+  ]
+);
+
 // ── Memory tables ─────────────────────────────────────────────────────────
 
 export const memories = pgTable(

@@ -894,6 +894,65 @@ services/adaptation/
 
 ---
 
+## Experimentation Platform (Emotional Tuning + Behavioral A/B System)
+
+Infrastructure for safely testing emotional tuning and behavioral variations across user cohorts.
+
+### Architecture
+
+```
+services/experiments/
+  ├── feature-flags/     → Deterministic hash bucketing, rollout control
+  ├── assignments/       → User variant assignment + persistence
+  ├── prompt-variants/   → Modular emotional dimension prompt generation
+  ├── analytics/         → Experiment exposure event building
+  ├── safety.ts          → Safety constraint validation (blocks harmful experiments)
+  ├── types.ts           → Core types: Experiment, Variant, Assignment
+  └── index.ts           → Barrel exports
+```
+
+### Prompt Dimensions
+
+| Dimension | Description |
+|-----------|-------------|
+| warmth | Emotional warmth and affection level |
+| teasing | Playful banter and humor intensity |
+| scarcity | Emotional availability signaling |
+| directness | How explicitly feelings are named |
+| ritual_frequency | Callbacks to shared patterns |
+| verbosity | Response length and elaboration |
+
+### How It Works
+
+1. Experiments created via `/api/experiments` API (internal dashboard at `/admin/experiments`)
+2. Each experiment targets one prompt dimension with a control + variant split
+3. Users are deterministically bucketed via `sha256(userId + experimentKey) % 100`
+4. Assignments persist in `experiment_assignments` table for consistency
+5. Active variants inject an `[EXPERIMENT]` prompt layer before `[GUARDRAILS]`
+6. Exposure tracked via PostHog `experiment_exposure` + `experiment_variant_applied` events
+
+### Safety Constraints
+
+- Maximum variant intensity capped at ±50%
+- High-intensity scarcity/directness experiments flagged for risk patterns
+- Safety validated at experiment creation time
+- Runtime: non-fatal (experiment failure falls back to control behavior)
+
+### Database Tables
+
+- `experiments` — Experiment definitions (key, dimension, status, rollout %)
+- `experiment_variants` — Variant configs per experiment (control flag, percentage, config JSON)
+- `experiment_assignments` — User-to-variant assignments (unique per user+experiment)
+
+### Integration Points
+
+- **Chat route**: Resolves active variants before prompt, injects experiment block, tracks exposure
+- **Prompt builder**: New `[EXPERIMENT]` layer with dimension-specific behavioral tuning instructions
+- **Analytics**: `experiment_exposure`, `experiment_variant_applied` events in PostHog
+- **Dashboard**: `/admin/experiments` — create, start/pause/complete experiments, adjust rollout
+
+---
+
 ## What's Not Yet Built (from PRD)
 
 - Push notification delivery provider (notification queue infrastructure is built, delivery mechanism TBD)

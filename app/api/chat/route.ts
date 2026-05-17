@@ -42,7 +42,14 @@ import {
   trackProfileUpdated,
   trackAdaptationApplied,
   trackChurnRiskPredicted,
+  trackExperimentExposure,
+  trackExperimentVariantApplied,
 } from "@/lib/posthog/events";
+import {
+  resolveAllActiveVariants,
+  buildExperimentPromptBlock,
+  type AssignmentResult,
+} from "@/services/experiments";
 
 export async function POST(req: Request) {
   const session = await auth.api.getSession({
@@ -188,6 +195,29 @@ export async function POST(req: Request) {
     // Scarcity evaluation failure is non-fatal
   }
 
+  let experimentBlock: string | undefined;
+  let experimentAssignments: AssignmentResult[] = [];
+  try {
+    experimentAssignments = await resolveAllActiveVariants(session.user.id);
+    if (experimentAssignments.length > 0) {
+      experimentBlock = buildExperimentPromptBlock(experimentAssignments);
+      for (const assignment of experimentAssignments) {
+        trackExperimentExposure(
+          assignment.experimentKey,
+          assignment.variantName,
+          assignment.isControl,
+          assignment.config.dimension
+        );
+      }
+      trackExperimentVariantApplied(
+        experimentAssignments.length,
+        experimentAssignments.map((a) => a.config.dimension)
+      );
+    }
+  } catch {
+    // Experiment resolution failure is non-fatal
+  }
+
   const systemPrompt = buildSystemPrompt({
     relationshipStage: stageResult.stage,
     emotionalState: emotionalResult.state,
@@ -195,6 +225,7 @@ export async function POST(req: Request) {
     memoriesBlock: memoriesBlock || undefined,
     scarcityBlock,
     adaptationBlock,
+    experimentBlock,
     isPremium: gating.tier === "premium",
   });
 
