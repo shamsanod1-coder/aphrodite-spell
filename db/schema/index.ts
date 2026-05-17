@@ -448,6 +448,40 @@ export const inferenceCosts = pgTable(
   ]
 );
 
+// ── Safety tables ─────────────────────────────────────────────────────────
+
+export const safetyAudits = pgTable(
+  "safety_audits",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    conversationId: uuid("conversation_id")
+      .notNull()
+      .references(() => conversations.id, { onDelete: "cascade" }),
+    source: text("source", { enum: ["input", "output"] }).notNull(),
+    category: text("category").notNull(),
+    severity: text("severity", {
+      enum: ["low", "medium", "high", "critical"],
+    }).notNull(),
+    action: text("action", {
+      enum: ["allow", "flag", "inject_safety_prompt", "replace_response", "block"],
+    }).notNull(),
+    matchedPattern: text("matched_pattern").notNull(),
+    matchedText: text("matched_text").notNull(),
+    messageContent: text("message_content").notNull(),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+  },
+  (table) => [
+    index("safety_audits_user_id_idx").on(table.userId),
+    index("safety_audits_conversation_id_idx").on(table.conversationId),
+    index("safety_audits_severity_idx").on(table.severity),
+    index("safety_audits_created_at_idx").on(table.createdAt),
+    index("safety_audits_category_idx").on(table.category),
+  ]
+);
+
 // ── Memory tables ─────────────────────────────────────────────────────────
 
 export const memories = pgTable(

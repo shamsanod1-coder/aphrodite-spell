@@ -30,6 +30,7 @@ export interface BuildSystemPromptInput {
   scarcityBlock?: string;
   adaptationBlock?: string;
   experimentBlock?: string;
+  safetyBlock?: string;
   isPremium?: boolean;
 }
 
@@ -43,6 +44,10 @@ export function buildSystemPrompt(input: BuildSystemPromptInput): string {
     `[RESPONSE STYLE]\n${getResponseStylePromptBlock(relationshipStage, emotionalState)}`,
     `[GUARDRAILS]\n${getGuardrailsPromptBlock()}`,
   ];
+
+  if (input.safetyBlock) {
+    layers.unshift(input.safetyBlock);
+  }
 
   if (memoriesBlock) {
     layers.splice(3, 0, `[EMOTIONAL MEMORIES]\nYou remember these things about the person you're talking to. Weave them naturally into your responses when relevant — never list them or make it obvious you're recalling them:\n${memoriesBlock}`);
