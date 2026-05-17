@@ -29,6 +29,7 @@ export interface BuildSystemPromptInput {
   memoriesBlock?: string;
   scarcityBlock?: string;
   adaptationBlock?: string;
+  experimentBlock?: string;
   isPremium?: boolean;
 }
 
@@ -65,6 +66,11 @@ This user has chosen to deepen their connection with you. Respond with:
   if (adaptationBlock) {
     const guardrailIndex = layers.findIndex((l) => l.startsWith("[GUARDRAILS]"));
     layers.splice(guardrailIndex, 0, adaptationBlock);
+  }
+
+  if (input.experimentBlock) {
+    const guardrailIndex = layers.findIndex((l) => l.startsWith("[GUARDRAILS]"));
+    layers.splice(guardrailIndex, 0, input.experimentBlock);
   }
 
   return layers.join("\n\n---\n\n");

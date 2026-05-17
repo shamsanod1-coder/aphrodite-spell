@@ -38,6 +38,8 @@ export const AnalyticsEvents = {
   PROFILE_UPDATED: "profile_updated",
   ADAPTATION_APPLIED: "adaptation_applied",
   CHURN_RISK_PREDICTED: "churn_risk_predicted",
+  EXPERIMENT_EXPOSURE: "experiment_exposure",
+  EXPERIMENT_VARIANT_APPLIED: "experiment_variant_applied",
 } as const;
 
 type EventName = (typeof AnalyticsEvents)[keyof typeof AnalyticsEvents];
@@ -270,5 +272,29 @@ export function trackChurnRiskPredicted(
     risk,
     score,
     signals,
+  });
+}
+
+export function trackExperimentExposure(
+  experimentKey: string,
+  variantName: string,
+  isControl: boolean,
+  dimension: string
+) {
+  trackEvent(AnalyticsEvents.EXPERIMENT_EXPOSURE, {
+    experiment_key: experimentKey,
+    variant_name: variantName,
+    is_control: isControl,
+    dimension,
+  });
+}
+
+export function trackExperimentVariantApplied(
+  experimentCount: number,
+  dimensions: string[]
+) {
+  trackEvent(AnalyticsEvents.EXPERIMENT_VARIANT_APPLIED, {
+    experiment_count: experimentCount,
+    dimensions,
   });
 }
