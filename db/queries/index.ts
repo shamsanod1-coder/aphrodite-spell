@@ -91,6 +91,7 @@ export {
   getExperimentAssignment,
   createAssignment,
   getActiveExperimentAssignments,
+  listRunningExperimentKeys,
   getRunningExperimentByKey,
   type Experiment as ExperimentRow,
   type ExperimentVariant,
