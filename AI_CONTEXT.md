@@ -158,6 +158,23 @@ aphrodite-spell/
 │   │   │   └── index.ts          # checkMessageGating(), shouldShowPaywall()
 │   │   └── usage/
 │   │       └── index.ts          # getDailyUsage(), incrementDailyUsage(), getUsageStatus()
+│   ├── optimization/
+│   │   ├── index.ts              # Barrel exports for optimization module
+│   │   ├── token-budgeting/
+│   │   │   ├── index.ts          # computeTokenBudget(), estimateTokens(), budgetAwareMessageSlice()
+│   │   │   └── types.ts          # TokenBudget, TokenBudgetInput interfaces
+│   │   ├── context-routing/
+│   │   │   ├── index.ts          # classifyRoutingDecision(), getRoutedModel(), detectNsfwIndicators()
+│   │   │   └── types.ts          # RoutingInput, RoutingResult, RoutingDecision
+│   │   ├── compression/
+│   │   │   ├── index.ts          # compressContext(), shouldGenerateRollingSummary()
+│   │   │   └── types.ts          # CompressionInput, CompressionResult
+│   │   ├── summarization/
+│   │   │   ├── index.ts          # generateSummary() — multi-type conversation summarization
+│   │   │   └── types.ts          # SummarizationInput, SummarizationResult, SummaryType
+│   │   └── cost-analytics/
+│   │       ├── index.ts          # trackInferenceCost(), estimateCost()
+│   │       └── types.ts          # CostTrackingInput, ModelCostRates
 │   └── scarcity/
 │       ├── index.ts              # Barrel exports for scarcity module
 │       ├── availability/

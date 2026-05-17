@@ -11,12 +11,17 @@ import {
   countConversationMessages,
   getLastMessageTime,
   updateRelationshipStage,
+  getCachedState,
+  setCachedState,
+  getConversationSummary,
+  upsertConversationSummary,
 } from "@/db/queries";
 import {
   evaluateRelationshipStage,
   generateEmotionalState,
   buildSystemPrompt,
   type RelationshipStage,
+  type EmotionalState,
 } from "@/services/ai/personality";
 import {
   retrieveRelevantMemories,
@@ -44,12 +49,27 @@ import {
   trackChurnRiskPredicted,
   trackExperimentExposure,
   trackExperimentVariantApplied,
+  trackModelRouted,
+  trackContextCompressed,
+  trackInferenceCostTracked,
 } from "@/lib/posthog/events";
 import {
   resolveAllActiveVariants,
   buildExperimentPromptBlock,
   type AssignmentResult,
 } from "@/services/experiments";
+import {
+  computeTokenBudget,
+  classifyRoutingDecision,
+  getRoutedModel,
+  detectNsfwIndicators,
+  compressContext,
+  shouldGenerateRollingSummary,
+  generateSummary,
+  estimateTokens,
+  trackInferenceCost,
+  estimateCost,
+} from "@/services/optimization";
 
 export async function POST(req: Request) {
   const session = await auth.api.getSession({
@@ -95,27 +115,104 @@ export async function POST(req: Request) {
   const currentStage = (conversation.relationshipStage ??
     "curiosity") as RelationshipStage;
 
-  const stageResult = evaluateRelationshipStage({
-    messageCount,
-    daysActive,
-    currentStage,
-  });
+  // Check for cached emotional state to skip expensive recomputation
+  const cachedState = await getCachedState(conversationId).catch(() => null);
 
-  if (stageResult.advanced) {
-    await updateRelationshipStage(conversationId, stageResult.stage);
+  let stageResult: { stage: RelationshipStage; advanced: boolean };
+  let emotionalResult: { state: EmotionalState; intensity: "low" | "medium" | "high" };
+  let hoursSinceLastMessage: number | null = null;
+  let availabilityState: string = "attentive";
+  let pacingDelayMs = 0;
+  let scarcityBlock: string | undefined;
+  let adaptationBlock: string | undefined;
+
+  if (cachedState) {
+    // Use cached state — skip recomputation
+    stageResult = {
+      stage: cachedState.relationshipStage as RelationshipStage,
+      advanced: false,
+    };
+    emotionalResult = {
+      state: cachedState.emotionalState as EmotionalState,
+      intensity: cachedState.emotionalIntensity as "low" | "medium" | "high",
+    };
+    availabilityState = cachedState.availabilityState;
+    scarcityBlock = cachedState.scarcityBlock ?? undefined;
+    adaptationBlock = cachedState.adaptationBlock ?? undefined;
+  } else {
+    // Fresh computation
+    stageResult = evaluateRelationshipStage({
+      messageCount,
+      daysActive,
+      currentStage,
+    });
+
+    if (stageResult.advanced) {
+      await updateRelationshipStage(conversationId, stageResult.stage);
+    }
+
+    const lastMessageDate = await getLastMessageTime(conversationId);
+    hoursSinceLastMessage = lastMessageDate
+      ? (Date.now() - lastMessageDate.getTime()) / (1000 * 60 * 60)
+      : null;
+
+    emotionalResult = generateEmotionalState({
+      relationshipStage: stageResult.stage,
+      messageCount,
+      hoursSinceLastMessage,
+      daysActive,
+    });
+
+    // Fetch adaptation profile
+    try {
+      const profileData = await fetchEmotionalProfile(session.user.id);
+      const modifiers = computeAdaptiveModifiers(profileData, stageResult.stage);
+      const block = getAdaptationPromptBlock(modifiers, profileData);
+      if (block) {
+        adaptationBlock = block;
+        const activeModifiers = block.split("\n").length - 1;
+        trackAdaptationApplied(activeModifiers, stageResult.stage);
+      }
+    } catch {
+      // Adaptation failure is non-fatal
+    }
+
+    const currentHour = new Date().getUTCHours();
+    const sessionMessageCount = messages.filter((m) => m.role === "user").length;
+
+    try {
+      const scarcityResult = generateAvailabilityState({
+        relationshipStage: stageResult.stage,
+        emotionalState: emotionalResult.state,
+        messageCount,
+        hoursSinceLastMessage,
+        daysActive,
+        currentHour,
+        sessionMessageCount,
+      });
+      availabilityState = scarcityResult.state;
+      pacingDelayMs = scarcityResult.pacingDelayMs;
+      scarcityBlock = scarcityResult.promptBlock || undefined;
+
+      if (scarcityResult.state !== "attentive") {
+        trackAvailabilityStateChanged(
+          null,
+          scarcityResult.state,
+          scarcityResult.metadata.reason,
+          stageResult.stage
+        );
+      }
+      if (pacingDelayMs > 0) {
+        trackDelayedResponseTriggered(
+          scarcityResult.state,
+          pacingDelayMs,
+          pacingDelayMs < 2000 ? "natural" : pacingDelayMs < 5000 ? "deliberate" : "slow"
+        );
+      }
+    } catch {
+      // Scarcity evaluation failure is non-fatal
+    }
   }
-
-  const lastMessageDate = await getLastMessageTime(conversationId);
-  const hoursSinceLastMessage = lastMessageDate
-    ? (Date.now() - lastMessageDate.getTime()) / (1000 * 60 * 60)
-    : null;
-
-  const emotionalResult = generateEmotionalState({
-    relationshipStage: stageResult.stage,
-    messageCount,
-    hoursSinceLastMessage,
-    daysActive,
-  });
 
   // Retrieve emotionally relevant memories for prompt injection
   const lastUserMessage = messages
@@ -127,6 +224,7 @@ export async function POST(req: Request) {
     .join("") ?? "";
 
   let memoriesBlock = "";
+  let memoryCount = 0;
   if (lastUserText && process.env.OPENAI_API_KEY) {
     try {
       const relevantMemories = await retrieveRelevantMemories(
@@ -135,64 +233,10 @@ export async function POST(req: Request) {
         gating.entitlements.maxMemoriesPerPrompt
       );
       memoriesBlock = formatMemoriesForPrompt(relevantMemories);
+      memoryCount = relevantMemories.length;
     } catch {
       // Memory retrieval failure is non-fatal
     }
-  }
-
-  // Fetch user emotional profile for adaptive personalization
-  let adaptationBlock: string | undefined;
-  let profileData: Awaited<ReturnType<typeof fetchEmotionalProfile>> | null = null;
-  try {
-    profileData = await fetchEmotionalProfile(session.user.id);
-    const modifiers = computeAdaptiveModifiers(profileData, stageResult.stage);
-    const block = getAdaptationPromptBlock(modifiers, profileData);
-    if (block) {
-      adaptationBlock = block;
-      const activeModifiers = block.split("\n").length - 1;
-      trackAdaptationApplied(activeModifiers, stageResult.stage);
-    }
-  } catch {
-    // Adaptation failure is non-fatal
-  }
-
-  const currentHour = new Date().getUTCHours();
-  const sessionMessageCount = messages.filter((m) => m.role === "user").length;
-
-  let availabilityState: string = "attentive";
-  let pacingDelayMs = 0;
-  let scarcityBlock: string | undefined;
-  try {
-    const scarcityResult = generateAvailabilityState({
-      relationshipStage: stageResult.stage,
-      emotionalState: emotionalResult.state,
-      messageCount,
-      hoursSinceLastMessage,
-      daysActive,
-      currentHour,
-      sessionMessageCount,
-    });
-    availabilityState = scarcityResult.state;
-    pacingDelayMs = scarcityResult.pacingDelayMs;
-    scarcityBlock = scarcityResult.promptBlock || undefined;
-
-    if (scarcityResult.state !== "attentive") {
-      trackAvailabilityStateChanged(
-        null,
-        scarcityResult.state,
-        scarcityResult.metadata.reason,
-        stageResult.stage
-      );
-    }
-    if (pacingDelayMs > 0) {
-      trackDelayedResponseTriggered(
-        scarcityResult.state,
-        pacingDelayMs,
-        pacingDelayMs < 2000 ? "natural" : pacingDelayMs < 5000 ? "deliberate" : "slow"
-      );
-    }
-  } catch {
-    // Scarcity evaluation failure is non-fatal
   }
 
   let experimentBlock: string | undefined;
@@ -218,6 +262,29 @@ export async function POST(req: Request) {
     // Experiment resolution failure is non-fatal
   }
 
+  // Compute token budget based on tier
+  const tokenBudget = computeTokenBudget({
+    tier: gating.tier as "free" | "premium",
+    maxContextMessages: gating.entitlements.maxContextMessages,
+  });
+
+  // Model routing — classify exchange complexity
+  const routingResult = classifyRoutingDecision({
+    emotionalIntensity: emotionalResult.intensity,
+    relationshipStage: stageResult.stage,
+    messageLength: lastUserText.length,
+    hasNsfwIndicators: detectNsfwIndicators(lastUserText),
+    memoryComplexity: memoryCount,
+    isPremium: gating.tier === "premium",
+  });
+
+  trackModelRouted(
+    routingResult.decision,
+    routingResult.model,
+    routingResult.reason,
+    stageResult.stage
+  );
+
   const systemPrompt = buildSystemPrompt({
     relationshipStage: stageResult.stage,
     emotionalState: emotionalResult.state,
@@ -229,15 +296,151 @@ export async function POST(req: Request) {
     isPremium: gating.tier === "premium",
   });
 
-  const contextMessages = messages.slice(-gating.entitlements.maxContextMessages);
-  const modelMessages = await convertToModelMessages(contextMessages);
+  // Context compression — replace naive message slicing with budget-aware compression
+  const plainMessages = messages.map((m) => ({
+    role: m.role,
+    content:
+      m.parts
+        ?.filter(
+          (p): p is { type: "text"; text: string } => p.type === "text"
+        )
+        .map((p) => p.text)
+        .join("") ?? "",
+  }));
+
+  const rollingSummary = await getConversationSummary(
+    conversationId,
+    "rolling"
+  ).catch(() => null);
+
+  const systemPromptTokens = estimateTokens(systemPrompt);
+  const memoryTokens = estimateTokens(memoriesBlock);
+  const availableForContext = Math.max(
+    0,
+    tokenBudget.contextMessagesBudget -
+      Math.max(0, systemPromptTokens - tokenBudget.systemPromptBudget) -
+      Math.max(0, memoryTokens - tokenBudget.memoriesBudget)
+  );
+
+  const compression = compressContext({
+    messages: plainMessages,
+    tokenBudget: availableForContext,
+    maxMessages: gating.entitlements.maxContextMessages,
+    existingSummary: rollingSummary?.content,
+  });
+
+  if (compression.compressionApplied) {
+    trackContextCompressed(
+      compression.tokensBefore,
+      compression.tokensAfter,
+      compression.tokensBefore > 0
+        ? compression.tokensAfter / compression.tokensBefore
+        : 1,
+      !!rollingSummary
+    );
+  }
+
+  // Convert compressed messages for the model
+  const compressedUIMessages: UIMessage[] = compression.messages.map(
+    (m, i) => ({
+      id: `compressed-${i}`,
+      role: m.role as UIMessage["role"],
+      parts: [{ type: "text" as const, text: m.content }],
+      content: m.content,
+    })
+  );
+
+  const modelMessages = await convertToModelMessages(compressedUIMessages);
+
+  // Use routed model instead of default
+  let selectedModel;
+  try {
+    selectedModel = getRoutedModel(routingResult);
+  } catch {
+    // Fall back to default model if routing fails
+    selectedModel = getModel();
+  }
 
   const result = streamText({
-    model: getModel(),
+    model: selectedModel,
     system: systemPrompt,
     messages: modelMessages,
-    onFinish: async () => {
+    onFinish: async ({ usage }) => {
       incrementDailyUsage(session.user.id).catch(() => {});
+
+      // Track inference cost
+      try {
+        const inputTokens = usage?.inputTokens ?? 0;
+        const outputTokens = usage?.outputTokens ?? 0;
+
+        if (inputTokens > 0 || outputTokens > 0) {
+          await trackInferenceCost({
+            userId: session.user.id,
+            conversationId,
+            model: routingResult.model,
+            provider: routingResult.provider,
+            inputTokens,
+            outputTokens,
+            routingDecision: routingResult.decision,
+            contextTokensBefore: compression.tokensBefore,
+            contextTokensAfter: compression.tokensAfter,
+            compressionApplied: compression.compressionApplied,
+          });
+
+          trackInferenceCostTracked(
+            routingResult.model,
+            routingResult.provider,
+            inputTokens,
+            outputTokens,
+            estimateCost(routingResult.model, inputTokens, outputTokens),
+            routingResult.decision
+          );
+        }
+      } catch {
+        // Cost tracking failure is non-fatal
+      }
+
+      // Cache emotional state for subsequent messages
+      try {
+        await setCachedState({
+          conversationId,
+          userId: session.user.id,
+          emotionalState: emotionalResult.state,
+          emotionalIntensity: emotionalResult.intensity,
+          relationshipStage: stageResult.stage,
+          availabilityState,
+          adaptationBlock: adaptationBlock ?? null,
+          scarcityBlock: scarcityBlock ?? null,
+        });
+      } catch {
+        // Cache write failure is non-fatal
+      }
+
+      // Generate rolling summary if threshold reached
+      if (shouldGenerateRollingSummary(messageCount)) {
+        try {
+          const recentForSummary = plainMessages.slice(-20);
+          const { summary, tokenCount } = await generateSummary({
+            messages: recentForSummary,
+            summaryType: "rolling",
+            existingSummary: rollingSummary?.content,
+            relationshipStage: stageResult.stage,
+          });
+
+          await upsertConversationSummary({
+            conversationId,
+            summaryType: "rolling",
+            content: summary,
+            messageRange: {
+              startIndex: Math.max(0, messageCount - 20),
+              endIndex: messageCount,
+            },
+            tokenCount,
+          });
+        } catch {
+          // Summary generation failure is non-fatal
+        }
+      }
 
       const recentMessages = messages.slice(-10).map((m) => ({
         role: m.role as "user" | "assistant",
@@ -316,6 +519,9 @@ export async function POST(req: Request) {
       "x-stage-advanced": stageResult.advanced ? "true" : "false",
       "x-availability-state": availabilityState,
       "x-pacing-delay": String(pacingDelayMs),
+      "x-routing-decision": routingResult.decision,
+      "x-model": routingResult.model,
+      "x-compression-applied": compression.compressionApplied ? "true" : "false",
     },
   });
 }
