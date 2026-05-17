@@ -43,6 +43,9 @@ export const AnalyticsEvents = {
   INFERENCE_COST_TRACKED: "inference_cost_tracked",
   MODEL_ROUTED: "model_routed",
   CONTEXT_COMPRESSED: "context_compressed",
+  SAFETY_VIOLATION_DETECTED: "safety_violation_detected",
+  SAFETY_ESCALATION_TRIGGERED: "safety_escalation_triggered",
+  SAFETY_AUDIT_LOGGED: "safety_audit_logged",
 } as const;
 
 type EventName = (typeof AnalyticsEvents)[keyof typeof AnalyticsEvents];
@@ -345,5 +348,45 @@ export function trackContextCompressed(
     tokens_after: tokensAfter,
     compression_ratio: compressionRatio,
     summary_used: summaryUsed,
+  });
+}
+
+export function trackSafetyViolationDetected(
+  source: string,
+  category: string,
+  severity: string,
+  conversationId: string
+) {
+  trackEvent(AnalyticsEvents.SAFETY_VIOLATION_DETECTED, {
+    source,
+    category,
+    severity,
+    conversation_id: conversationId,
+  });
+}
+
+export function trackSafetyEscalationTriggered(
+  action: string,
+  category: string,
+  severity: string,
+  conversationId: string
+) {
+  trackEvent(AnalyticsEvents.SAFETY_ESCALATION_TRIGGERED, {
+    action,
+    category,
+    severity,
+    conversation_id: conversationId,
+  });
+}
+
+export function trackSafetyAuditLogged(
+  source: string,
+  category: string,
+  action: string
+) {
+  trackEvent(AnalyticsEvents.SAFETY_AUDIT_LOGGED, {
+    source,
+    category,
+    action,
   });
 }

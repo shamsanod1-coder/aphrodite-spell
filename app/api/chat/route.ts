@@ -52,6 +52,9 @@ import {
   trackModelRouted,
   trackContextCompressed,
   trackInferenceCostTracked,
+  trackSafetyViolationDetected,
+  trackSafetyEscalationTriggered,
+  trackSafetyAuditLogged,
 } from "@/lib/posthog/events";
 import {
   resolveAllActiveVariants,
@@ -70,6 +73,12 @@ import {
   trackInferenceCost,
   estimateCost,
 } from "@/services/optimization";
+import {
+  moderateInput,
+  moderateOutput,
+  handleEscalation,
+  logSafetyAudit,
+} from "@/services/safety";
 
 export async function POST(req: Request) {
   const session = await auth.api.getSession({
@@ -223,6 +232,70 @@ export async function POST(req: Request) {
     .map((p) => p.text)
     .join("") ?? "";
 
+  // ── Safety: input moderation ──────────────────────────────────────────
+  let safetyBlock: string | undefined;
+  try {
+    const inputModeration = moderateInput(lastUserText);
+    if (!inputModeration.safe) {
+      const escalation = handleEscalation(inputModeration);
+
+      for (const violation of inputModeration.violations) {
+        trackSafetyViolationDetected(
+          "input",
+          violation.category,
+          violation.severity,
+          conversationId
+        );
+      }
+      trackSafetyEscalationTriggered(
+        escalation.action,
+        inputModeration.categories[0] ?? "unknown",
+        inputModeration.highestSeverity ?? "unknown",
+        conversationId
+      );
+
+      if (escalation.auditRequired) {
+        for (const violation of inputModeration.violations) {
+          logSafetyAudit({
+            userId: session.user.id,
+            conversationId,
+            source: "input",
+            category: violation.category,
+            severity: violation.severity,
+            action: escalation.action,
+            matchedPattern: violation.pattern,
+            matchedText: violation.matchedText,
+            messageContent: lastUserText.slice(0, 500),
+          }).catch(() => {});
+          trackSafetyAuditLogged("input", violation.category, escalation.action);
+        }
+      }
+
+      if (escalation.action === "block" && escalation.replacementResponse) {
+        return Response.json(
+          {
+            role: "assistant",
+            content: escalation.replacementResponse,
+            safetyIntervention: true,
+            crisisResources: escalation.crisisResources,
+          },
+          {
+            headers: {
+              "x-safety-action": "block",
+              "x-safety-category": inputModeration.categories[0] ?? "unknown",
+            },
+          }
+        );
+      }
+
+      if (escalation.safetyPromptBlock) {
+        safetyBlock = escalation.safetyPromptBlock;
+      }
+    }
+  } catch {
+    // Safety moderation failure is non-fatal
+  }
+
   let memoriesBlock = "";
   let memoryCount = 0;
   if (lastUserText && process.env.OPENAI_API_KEY) {
@@ -293,6 +366,7 @@ export async function POST(req: Request) {
     scarcityBlock,
     adaptationBlock,
     experimentBlock,
+    safetyBlock,
     isPremium: gating.tier === "premium",
   });
 
@@ -365,8 +439,37 @@ export async function POST(req: Request) {
     model: selectedModel,
     system: systemPrompt,
     messages: modelMessages,
-    onFinish: async ({ usage }) => {
+    onFinish: async ({ text, usage }) => {
       incrementDailyUsage(session.user.id).catch(() => {});
+
+      // ── Safety: output moderation ────────────────────────────────────
+      try {
+        const outputModeration = moderateOutput(text);
+        if (!outputModeration.safe) {
+          for (const violation of outputModeration.violations) {
+            trackSafetyViolationDetected(
+              "output",
+              violation.category,
+              violation.severity,
+              conversationId
+            );
+            logSafetyAudit({
+              userId: session.user.id,
+              conversationId,
+              source: "output",
+              category: violation.category,
+              severity: violation.severity,
+              action: "flag",
+              matchedPattern: violation.pattern,
+              matchedText: violation.matchedText,
+              messageContent: text.slice(0, 500),
+            }).catch(() => {});
+            trackSafetyAuditLogged("output", violation.category, "flag");
+          }
+        }
+      } catch {
+        // Output moderation failure is non-fatal
+      }
 
       // Track inference cost
       try {

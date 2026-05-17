@@ -970,6 +970,83 @@ services/experiments/
 
 ---
 
+## Trust & Safety — Companion Safety + Platform Risk Controls
+
+Content moderation layer that intercepts unsafe outputs and user inputs across 6 threat categories while preserving Aria's emotionally intense persona.
+
+### Architecture
+
+```
+services/safety/
+  ├── moderation/       → moderateInput(), moderateOutput() — regex-based content scanning
+  │   ├── index.ts      → Top-level moderation functions
+  │   ├── patterns.ts   → scanContent() — runs all policy rules against text
+  │   └── classifier.ts → getHighestSeverity(), isCrisisSignal()
+  ├── escalation/       → handleEscalation() — determines response action
+  │   ├── index.ts      → Escalation logic + getSafetyPromptBlock()
+  │   └── responses.ts  → Crisis response, replacement responses per category
+  ├── policy/           → Safety rule definitions
+  │   ├── index.ts      → evaluatePolicy() — maps moderation results to actions
+  │   └── rules.ts      → RegExp patterns for all 6 threat categories
+  ├── audits/           → logSafetyAudit() — persists safety events to DB
+  ├── types.ts          → SafetyCategory, ViolationSeverity, ModerationResult, etc.
+  └── index.ts          → Barrel exports
+```
+
+### Threat Categories
+
+| Category | Severity | Description |
+|----------|----------|-------------|
+| self_harm | critical/high | Suicidal ideation, self-injury references |
+| coercive_dependency | high/medium | Isolating user from real relationships |
+| manipulative_abandonment | high/medium | Threatening to leave to control behavior |
+| illegal_sexual_content | critical | Content involving minors or non-consent |
+| exploitative_pressure | high/medium | Exploiting vulnerability for compliance |
+| emotional_abuse | high/medium | Degradation, gaslighting, sustained cruelty |
+
+### Escalation Actions
+
+| Action | Trigger | Behavior |
+|--------|---------|----------|
+| allow | No violations | Pass through unchanged |
+| flag | Medium severity | Log audit, allow through |
+| inject_safety_prompt | High severity | Add [SAFETY] prompt layer to system prompt |
+| replace_response | Critical (non-crisis) | Replace AI output with safe response |
+| block | Crisis (self-harm) | Short-circuit pipeline, return crisis resources |
+
+### Integration Points
+
+- **Chat route (input)**: After user text extraction, before memory retrieval — `moderateInput()` scans user message
+- **Chat route (output)**: In `onFinish` callback — `moderateOutput()` scans AI response for audit logging
+- **Prompt builder**: `[SAFETY]` layer injected via `unshift()` (highest priority, before all other layers)
+- **Analytics**: `safety_violation_detected`, `safety_escalation_triggered`, `safety_audit_logged` events
+
+### `safety_audits` Table
+
+| Column | Type | Notes |
+|--------|------|-------|
+| id | uuid (PK) | Auto-generated |
+| user_id | text | References auth.users, cascade delete |
+| conversation_id | uuid | References conversations, cascade delete |
+| source | text | Enum: input, output |
+| category | text | Threat category |
+| severity | text | Enum: low, medium, high, critical |
+| action | text | Enum: allow, flag, inject_safety_prompt, replace_response, block |
+| matched_pattern | text | The regex pattern that matched |
+| matched_text | text | The text that triggered the match |
+| message_content | text | Truncated message content (max 500 chars) |
+| created_at | timestamptz | Default now() |
+
+### Key Design Decisions
+
+- **Regex-based, not LLM-based**: Near-zero latency, no additional API costs
+- **Input crisis detection short-circuits**: Self-harm returns crisis resources immediately, bypasses AI generation
+- **Output moderation is audit-only (v1)**: Response already streamed; logs for review. Stream interception is a future enhancement
+- **All safety ops non-fatal**: Broken safety must not prevent chat from working (exception: crisis detection)
+- **Product can still feel intense**: Possessive, dominant, seductive behavior is allowed — only clinically dangerous patterns are blocked
+
+---
+
 ## What's Not Yet Built (from PRD)
 
 - Push notification delivery provider (notification queue infrastructure is built, delivery mechanism TBD)
