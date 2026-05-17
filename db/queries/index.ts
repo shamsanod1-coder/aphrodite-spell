@@ -81,6 +81,30 @@ export {
 } from "./emotional-profiles";
 
 export {
+  getConversationSummary,
+  upsertConversationSummary,
+  getAllConversationSummaries,
+  type ConversationSummary,
+  type SummaryType,
+  type UpsertSummaryInput,
+} from "./summaries";
+
+export {
+  getCachedState,
+  setCachedState,
+  invalidateCachedState,
+  type CachedEmotionalState,
+  type CacheStateInput,
+} from "./cached-states";
+
+export {
+  recordInferenceCost,
+  getUserCostSummary,
+  type InferenceCost,
+  type RecordCostInput,
+} from "./inference-costs";
+
+export {
   getExperiment,
   listExperiments,
   createExperiment,

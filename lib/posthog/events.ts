@@ -40,6 +40,9 @@ export const AnalyticsEvents = {
   CHURN_RISK_PREDICTED: "churn_risk_predicted",
   EXPERIMENT_EXPOSURE: "experiment_exposure",
   EXPERIMENT_VARIANT_APPLIED: "experiment_variant_applied",
+  INFERENCE_COST_TRACKED: "inference_cost_tracked",
+  MODEL_ROUTED: "model_routed",
+  CONTEXT_COMPRESSED: "context_compressed",
 } as const;
 
 type EventName = (typeof AnalyticsEvents)[keyof typeof AnalyticsEvents];
@@ -296,5 +299,51 @@ export function trackExperimentVariantApplied(
   trackEvent(AnalyticsEvents.EXPERIMENT_VARIANT_APPLIED, {
     experiment_count: experimentCount,
     dimensions,
+  });
+}
+
+export function trackInferenceCostTracked(
+  model: string,
+  provider: string,
+  inputTokens: number,
+  outputTokens: number,
+  estimatedCost: number,
+  routingDecision: string
+) {
+  trackEvent(AnalyticsEvents.INFERENCE_COST_TRACKED, {
+    model,
+    provider,
+    input_tokens: inputTokens,
+    output_tokens: outputTokens,
+    estimated_cost: estimatedCost,
+    routing_decision: routingDecision,
+  });
+}
+
+export function trackModelRouted(
+  decision: string,
+  model: string,
+  reason: string,
+  relationshipStage: string
+) {
+  trackEvent(AnalyticsEvents.MODEL_ROUTED, {
+    decision,
+    model,
+    reason,
+    relationship_stage: relationshipStage,
+  });
+}
+
+export function trackContextCompressed(
+  tokensBefore: number,
+  tokensAfter: number,
+  compressionRatio: number,
+  summaryUsed: boolean
+) {
+  trackEvent(AnalyticsEvents.CONTEXT_COMPRESSED, {
+    tokens_before: tokensBefore,
+    tokens_after: tokensAfter,
+    compression_ratio: compressionRatio,
+    summary_used: summaryUsed,
   });
 }

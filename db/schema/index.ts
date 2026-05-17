@@ -362,6 +362,92 @@ export const experimentAssignments = pgTable(
   ]
 );
 
+// ── Optimization tables ──────────────────────────────────────────────────
+
+export const conversationSummaries = pgTable(
+  "conversation_summaries",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    conversationId: uuid("conversation_id")
+      .notNull()
+      .references(() => conversations.id, { onDelete: "cascade" }),
+    summaryType: text("summary_type", {
+      enum: ["rolling", "emotional_arc", "milestone", "ritual"],
+    }).notNull(),
+    content: text("content").notNull(),
+    messageRange: jsonb("message_range").$type<{
+      startIndex: number;
+      endIndex: number;
+    }>(),
+    tokenCount: integer("token_count"),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+    updatedAt: timestamp("updated_at").defaultNow().notNull(),
+  },
+  (table) => [
+    index("summaries_conversation_id_idx").on(table.conversationId),
+    index("summaries_type_idx").on(table.conversationId, table.summaryType),
+  ]
+);
+
+export const cachedEmotionalStates = pgTable(
+  "cached_emotional_states",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    conversationId: uuid("conversation_id")
+      .notNull()
+      .references(() => conversations.id, { onDelete: "cascade" }),
+    userId: text("user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    emotionalState: text("emotional_state").notNull(),
+    emotionalIntensity: text("emotional_intensity", {
+      enum: ["low", "medium", "high"],
+    }).notNull(),
+    relationshipStage: text("relationship_stage").notNull(),
+    availabilityState: text("availability_state").notNull(),
+    adaptationBlock: text("adaptation_block"),
+    scarcityBlock: text("scarcity_block"),
+    expiresAt: timestamp("expires_at").notNull(),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+  },
+  (table) => [
+    index("cached_states_conversation_idx").on(table.conversationId),
+    index("cached_states_user_idx").on(table.userId),
+    index("cached_states_expires_idx").on(table.expiresAt),
+  ]
+);
+
+export const inferenceCosts = pgTable(
+  "inference_costs",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    conversationId: uuid("conversation_id")
+      .notNull()
+      .references(() => conversations.id, { onDelete: "cascade" }),
+    model: text("model").notNull(),
+    provider: text("provider").notNull(),
+    inputTokens: integer("input_tokens").notNull(),
+    outputTokens: integer("output_tokens").notNull(),
+    estimatedCost: real("estimated_cost").notNull(),
+    routingDecision: text("routing_decision", {
+      enum: ["premium", "lite"],
+    }).notNull(),
+    contextTokensBefore: integer("context_tokens_before"),
+    contextTokensAfter: integer("context_tokens_after"),
+    compressionApplied: boolean("compression_applied").default(false).notNull(),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+  },
+  (table) => [
+    index("costs_user_id_idx").on(table.userId),
+    index("costs_conversation_id_idx").on(table.conversationId),
+    index("costs_created_at_idx").on(table.createdAt),
+    index("costs_model_idx").on(table.model),
+  ]
+);
+
 // ── Memory tables ─────────────────────────────────────────────────────────
 
 export const memories = pgTable(
