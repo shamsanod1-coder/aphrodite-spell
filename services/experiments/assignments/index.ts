@@ -1,8 +1,8 @@
 import {
-  getActiveExperimentAssignments,
   getExperimentAssignment,
   createAssignment,
   getRunningExperimentByKey,
+  listRunningExperimentKeys,
 } from "@/db/queries/experiments";
 import { computeBucket } from "../feature-flags";
 import type { AssignmentResult, VariantConfig } from "../types";
@@ -63,13 +63,11 @@ export async function resolveVariant(
 export async function resolveAllActiveVariants(
   userId: string
 ): Promise<AssignmentResult[]> {
-  const assignments = await getActiveExperimentAssignments(userId);
-  return assignments.map((a) => ({
-    experimentId: a.experimentId,
-    experimentKey: a.experimentKey,
-    variantId: a.variantId,
-    variantName: a.variantName,
-    isControl: a.isControl,
-    config: a.config as VariantConfig,
-  }));
+  const runningKeys = await listRunningExperimentKeys();
+  const results: AssignmentResult[] = [];
+  for (const key of runningKeys) {
+    const result = await resolveVariant(userId, key);
+    if (result) results.push(result);
+  }
+  return results;
 }

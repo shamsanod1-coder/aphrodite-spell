@@ -147,6 +147,14 @@ export async function getActiveExperimentAssignments(
     );
 }
 
+export async function listRunningExperimentKeys(): Promise<string[]> {
+  const rows = await db
+    .select({ key: experiments.key })
+    .from(experiments)
+    .where(eq(experiments.status, "running"));
+  return rows.map((r) => r.key);
+}
+
 // ── Composite queries ───────────────────────────────────────────────────
 
 export async function getRunningExperimentByKey(key: string): Promise<{
